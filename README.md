@@ -22,16 +22,16 @@
 
 # NORA: Nomadic Omnidirectional Reactive Automaton
 
-ESP32
-Ardiuno Uno
-2x l298n Motordrivers
-4x 5v DC Motordriver
-4x ultrasonic Sensors
-UV Light
+- ESP32
+- Ardiuno Uno
+- 2x l298n Motordrivers
+- 4x 5v DC Motordriver
+- 4x ultrasonic Sensors
+- UV Light
 
 <br>
 <div align="center">
-© Cursed Entertainment 202*
+© Cursed Entertainment 2026
 </div>
 <br>
 <div align="center">
