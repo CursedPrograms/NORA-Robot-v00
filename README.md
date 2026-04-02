@@ -22,65 +22,89 @@
 
 # NORA: Nomadic Omnidirectional Reactive Automaton
 
-![NORA](images/NORA1.jpg)
+<div align="center">
+  <img src="images/NORA1.jpg" alt="NORA Robot" width="400"/>
+</div>
 
-- ESP32
-- Ardiuno Uno
-- 2x l298n Motordrivers
-- 4x 5v DC Motordriver
-- 4x ultrasonic Sensors
-- UV Light
+## Overview
 
-#include <SoftwareSerial.h>
-#include <WiFi.h>
-#include <WebServer.h>
+NORA is an omnidirectional mobile robot platform built around the ESP32, featuring 4-wheel independent drive, ultrasonic obstacle detection in all directions, and UV light capabilities. The robot creates its own WiFi access point for remote control and monitoring.
+
+## Hardware Components
+
+- **ESP32** (ACEBOTT QA007 Max Controller Board)
+- **Arduino Uno**
+- **2x L298N Motor Drivers**
+- **4x 5V DC Motors**
+- **4x Ultrasonic Sensors** (HC-SR04 or compatible)
+- **UV Light Module**
+
+# Libraries:
+
+<SoftwareSerial.h>
+ <WiFi.h>
+ <WebServer.h>
 
 ap_ssid     = "NORA";
 ap_password = "12345678";
 
 ![NORA](images/NORA2.jpg)
 
-// =====================
-// MOTOR PINS - ESP32
-// =====================
-#define ENA1 5
-#define M1_1 16
-#define M1_2 17
+Pin Configuration - MOTOR PINS - ESP32
 
-#define ENA2 23
-#define M2_1 18
-#define M2_2 19
+    ENA1: 5
 
-#define ENB1 12
-#define M3_1 13
-#define M3_2 14
+    M1_1: 16
 
-#define ENB2 27
-#define M4_1 26
-#define M4_2 25
+    M1_2: 17
 
-// =====================
-// PIN SETUP
-// =====================
+    ENA2: 23
 
-// Front
-#define F_TRIG A0
-#define F_ECHO A1
+    M2_1: 18
 
-// Left
-#define L_TRIG 6
-#define L_ECHO 7
+    M2_2: 19
 
-// Back
-#define B_TRIG A4
-#define B_ECHO A5
+    ENB1: 12
 
-// Right
-#define R_TRIG A2
-#define R_ECHO A3
+    M3_1: 13
+
+    M3_2: 14
+
+    ENB2: 27
+
+    M4_1: 26
+
+    M4_2: 25
+
+Pin Configuration - Sensors Arduino
+Front
+
+    F_TRIG: A0
+
+    F_ECHO: A1
+
+Left
+
+    L_TRIG: 6
+
+    L_ECHO: 7
+
+Back
+
+    B_TRIG: A4
+
+    B_ECHO: A5
+
+Right
+
+    R_TRIG: A2
+
+    R_ECHO: A3
 
 ![NORA](images/NORA4.jpg)
 
+
+ACEBOTT ESP32 Documentation
 
 https://acebottteam.github.io/acebott-docs-master/board/ESP32/QA007%20ESP32%20Max%20V1.0%20Controller%20Board.html
 
