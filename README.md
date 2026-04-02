@@ -20,48 +20,14 @@
   </div>
   <br>
 
-# Python-Template
+# NORA: Nomadic Omnidirectional Reactive Automaton
 
-## How to Run:
-
-### Install Requirements
-
-Using Python directly:
-
-```bash
-pip install -r requirements.txt
-```
-Or run: 
-- `install_requirements.bat`
-
-  
-  <br>
-
-### Run main.py
-
-Using Python directly:
-
-```bash
-python main.py
-```
-
-Using provided scripts:
-
-Windows:
-- `.\run.bat`
-or
-- `.\run.ps1`
-
-Unix-like systems (Linux/macOS):
-- `.\run.sh`
-
-  <br>
-
-## Requirements:
-
-```bash
-
-```
+ESP32
+Ardiuno Uno
+2x l298n Motordrivers
+4x 5v DC Motordriver
+4x ultrasonic Sensors
+UV Light
 
 <br>
 <div align="center">
