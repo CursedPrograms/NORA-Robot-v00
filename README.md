@@ -22,6 +22,8 @@
 
 # NORA: Nomadic Omnidirectional Reactive Automaton
 
+![NORA](images/NORA1.jpg)
+
 - ESP32
 - Ardiuno Uno
 - 2x l298n Motordrivers
@@ -29,14 +31,62 @@
 - 4x ultrasonic Sensors
 - UV Light
 
-![NORA](images/NORA1.jpg)
+#include <SoftwareSerial.h>
+#include <WiFi.h>
+#include <WebServer.h>
+
+ap_ssid     = "NORA";
+ap_password = "12345678";
+
 ![NORA](images/NORA2.jpg)
+
+// =====================
+// MOTOR PINS - ESP32
+// =====================
+#define ENA1 5
+#define M1_1 16
+#define M1_2 17
+
+#define ENA2 23
+#define M2_1 18
+#define M2_2 19
+
+#define ENB1 12
+#define M3_1 13
+#define M3_2 14
+
+#define ENB2 27
+#define M4_1 26
+#define M4_2 25
+
+// =====================
+// PIN SETUP
+// =====================
+
+// Front
+#define F_TRIG A0
+#define F_ECHO A1
+
+// Left
+#define L_TRIG 6
+#define L_ECHO 7
+
+// Back
+#define B_TRIG A4
+#define B_ECHO A5
+
+// Right
+#define R_TRIG A2
+#define R_ECHO A3
+
 ![NORA](images/NORA4.jpg)
-![NORA](images/NORA5.jpg)
+
 
 https://acebottteam.github.io/acebott-docs-master/board/ESP32/QA007%20ESP32%20Max%20V1.0%20Controller%20Board.html
 
 https://acebottteam.github.io/acebott-docs-master/getting%20started/Arduino/Download%20CH340%20Driver%20on%20Windows%20System.html
+
+![NORA](images/NORA5.jpg)
 
 <br>
 <div align="center">
