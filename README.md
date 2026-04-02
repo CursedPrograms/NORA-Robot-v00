@@ -31,7 +31,6 @@
 
 ![NORA](images/NORA1.jpg)
 ![NORA](images/NORA2.jpg)
-![NORA](images/NORA3.jpg)
 ![NORA](images/NORA4.jpg)
 ![NORA](images/NORA5.jpg)
 
