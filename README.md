@@ -48,7 +48,9 @@ NORA is an omnidirectional mobile robot platform built around the ESP32, featuri
 ap_ssid     = "NORA";
 ap_password = "12345678";
 
-![NORA](images/NORA2.jpg)
+<div align="center">
+  <img src="images/NORA2.jpg" alt="NORA Robot" width="400"/>
+</div>
 
 Pin Configuration - MOTOR PINS - ESP32
 
@@ -101,7 +103,9 @@ Right
 
     R_ECHO: A3
 
-![NORA](images/NORA4.jpg)
+<div align="center">
+  <img src="images/NORA4.jpg" alt="NORA Robot" width="400"/>
+</div>
 
 
 ACEBOTT ESP32 Documentation
@@ -110,7 +114,9 @@ https://acebottteam.github.io/acebott-docs-master/board/ESP32/QA007%20ESP32%20Ma
 
 https://acebottteam.github.io/acebott-docs-master/getting%20started/Arduino/Download%20CH340%20Driver%20on%20Windows%20System.html
 
-![NORA](images/NORA5.jpg)
+<div align="center">
+  <img src="images/NORA5.jpg" alt="NORA Robot" width="400"/>
+</div>
 
 <br>
 <div align="center">
