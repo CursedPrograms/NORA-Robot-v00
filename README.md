@@ -22,6 +22,11 @@
 
 # NORA: Nomadic Omnidirectional Reactive Automaton
 
+- https://github.com/CursedPrograms/WHIP-Robot-v00
+- https://github.com/CursedPrograms/KIDA-Robot-v01
+- https://github.com/CursedPrograms/KIDA-Robot-v00
+- https://github.com/CursedPrograms/ComCentre
+
 <div align="center">
   <img src="images/NORA1.jpg" alt="NORA Robot" width="400"/>
 </div>
