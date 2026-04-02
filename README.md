@@ -29,6 +29,12 @@
 - 4x ultrasonic Sensors
 - UV Light
 
+![NORA](images/NORA1.jpg)
+![NORA](images/NORA2.jpg)
+![NORA](images/NORA3.jpg)
+![NORA](images/NORA4.jpg)
+![NORA](images/NORA5.jpg)
+
 https://acebottteam.github.io/acebott-docs-master/board/ESP32/QA007%20ESP32%20Max%20V1.0%20Controller%20Board.html
 
 https://acebottteam.github.io/acebott-docs-master/getting%20started/Arduino/Download%20CH340%20Driver%20on%20Windows%20System.html
