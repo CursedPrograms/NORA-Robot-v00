@@ -48,12 +48,12 @@ NORA is an omnidirectional mobile robot platform built around the ESP32, featuri
 
 # Libraries:
 
-<SoftwareSerial.h>
- <WiFi.h>
- <WebServer.h>
+- SoftwareSerial.h
+- WiFi.h
+- WebServer.h
 
-ap_ssid     = "NORA";
-ap_password = "12345678";
+- ap_ssid     = "NORA";
+- ap_password = "12345678";
 
 <div align="center">
   <img src="images/NORA2.jpg" alt="NORA Robot" width="400"/>
