@@ -1,14 +1,13 @@
 [![Twitter: @NorowaretaGemu](https://img.shields.io/badge/X-@NorowaretaGemu-blue.svg?style=flat)](https://x.com/NorowaretaGemu)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   
-  <br>
+<br>
 <div align="center">
   <a href="https://ko-fi.com/cursedentertainment">
     <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="ko-fi" style="width: 20%;"/>
   </a>
 </div>
-  <br>
-
+<br>
 <div align="center">
   <img alt="Python" src="https://img.shields.io/badge/python%20-%23323330.svg?&style=for-the-badge&logo=python&logoColor=white"/>
 </div>
@@ -18,7 +17,7 @@
   <img alt="Shell" src="https://img.shields.io/badge/Shell-%23323330.svg?&style=for-the-badge&logo=gnu-bash&logoColor=white"/>
   <img alt="Batch" src="https://img.shields.io/badge/Batch-%23323330.svg?&style=for-the-badge&logo=windows&logoColor=white"/>
   </div>
-  <br>
+<br>
 
 # NORA: Nomadic Omnidirectional Reactive Automaton
 
@@ -27,7 +26,8 @@
 - [WHIP-Robot-v00](https://github.com/CursedPrograms/WHIP-Robot-v00)
 - [KIDA-Robot-v01](https://github.com/CursedPrograms/KIDA-Robot-v01)
 - [KIDA-Robot-v00](https://github.com/CursedPrograms/KIDA-Robot-v00)
-- [ComCentre](https://github.com/CursedPrograms/ComCentre)
+- [DREAM](https://github.com/CursedPrograms/DREAM)
+- [RIFT](https://github.com/CursedPrograms/RIFT)
 
 <div align="center">
   <img src="images/NORA1.jpg" alt="NORA Robot" width="400"/>
@@ -37,7 +37,10 @@
 
 NORA is an omnidirectional mobile robot platform built around the ESP32, featuring 4-wheel independent drive, ultrasonic obstacle detection in all directions, and UV light capabilities. The robot creates its own WiFi access point for remote control and monitoring.
 
-## Hardware Components
+### Prerequisite Software
+- [Arduino IDE](https://docs.arduino.cc/software/ide/)
+
+### Prerequisite Hardware
 
 - **ESP32** (ACEBOTT QA007 Max Controller Board)
 - **Arduino Uno**
