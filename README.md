@@ -23,9 +23,9 @@
 
 ## Related Projects
 
-- [WHIP-Robot-v00](https://github.com/CursedPrograms/WHIP-Robot-v00)
 - [KIDA-Robot-v01](https://github.com/CursedPrograms/KIDA-Robot-v01)
 - [KIDA-Robot-v00](https://github.com/CursedPrograms/KIDA-Robot-v00)
+- [WHIP-Robot-v00](https://github.com/CursedPrograms/WHIP-Robot-v00)
 - [DREAM](https://github.com/CursedPrograms/DREAM)
 - [RIFT](https://github.com/CursedPrograms/RIFT)
 
@@ -49,11 +49,13 @@ NORA is an omnidirectional mobile robot platform built around the ESP32, featuri
 - **4x Ultrasonic Sensors** (HC-SR04 or compatible)
 - **UV Light Module**
 
-# Libraries:
+### Libraries:
 
-- SoftwareSerial.h
-- WiFi.h
-- WebServer.h
+- **SoftwareSerial.h**
+- **WiFi.h**
+- **WebServer.h**
+
+### Network Setup:
 
 - ap_ssid     = "NORA";
 - ap_password = "12345678";
