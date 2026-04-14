@@ -37,40 +37,42 @@
 
 NORA is an omnidirectional mobile robot platform built around the ESP32, featuring 4-wheel independent drive, ultrasonic obstacle detection in all directions, and UV light capabilities. The robot creates its own WiFi access point for remote control and monitoring.
 
-### Prerequisite Software
+## Prerequisites
+
+### Software
 - [Arduino IDE](https://docs.arduino.cc/software/ide/)
 
-### Prerequisite Hardware
+### Hardware
 
-#### **Chassis**
-- **Omnidirectional Robot Chassis**
+#### Chassis
+- Omnidirectional Robot Chassis
 
-#### **Microcontrollers**
-- **ESP32** (ACEBOTT QA007 Max Controller Board)
-- **Arduino Uno**
+#### Microcontrollers
+- ESP32 (ACEBOTT QA007 Max Controller Board)
+- Arduino Uno
 
 #### User Controllers
-- **PC, Android, iPhone**  (any device with Wi-Fi and a web browser)
+- PC, Android, iPhone  (any device with Wi-Fi and a web browser)
 
-#### **Motors & Drivers**
-- **2x L298N Motor Drivers**
-- **4x 5V DC Motors**
+#### Motors & Drivers
+- 2x L298N Motor Drivers
+- 4x 5V DC Motors
 
 #### Power Delivery
-- **2s 16850 batteries**
+- 2s 16850 batteries
 
-#### **Sensors and Peripherals**
-- **4x Ultrasonic Sensors** (HC-SR04 or compatible)
-- **UV Light Module**
+#### Sensors and Peripherals
+- 4x Ultrasonic Sensors (HC-SR04 or compatible)
+- UV Light Module
 
 ### Libraries:
 
-- **SoftwareSerial.h**
-- **WiFi.h**
-- **WebServer.h**
+- SoftwareSerial.h
+- WiFi.h
+- WebServer.h
 
 ### Network Setup:
-
+#### Broadcast Network:
 - ap_ssid     = "NORA";
 - ap_password = "12345678";
 
