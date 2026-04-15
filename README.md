@@ -102,25 +102,13 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 
 ---
 
-## 🌐 Connectivity & Controls
-
-### Network Configuration
-| Parameter | Value |
-| :--- | :--- |
-| **SSID** | `NORA` |
-| **Password** | `12345678` |
-
-### RIFT Integration
-To connect via [RIFT](https://github.com/CursedPrograms/RIFT), ensure NORA is active on:
-* `localhost:5003`
-
----
-
 <div align="center">
   <img src="images/NORA2.jpg" alt="NORA Robot" width="400"/>
 </div>
 
 ---
+
+# Schematics
 ## ⚡ Technical Pinouts
 
 <details>
@@ -152,6 +140,20 @@ To connect via [RIFT](https://github.com/CursedPrograms/RIFT), ensure NORA is ac
 
 > [!TIP]
 > **Pro-Tip:** Common GND is non-negotiable. If the motors behave erratically or the sensors give "0" readings, check your ground bridge first!
+---
+
+## 🌐 Connectivity & Controls
+
+### Network Configuration
+| Parameter | Value |
+| :--- | :--- |
+| **SSID** | `NORA` |
+| **Password** | `12345678` |
+
+### RIFT Integration
+To connect via [RIFT](https://github.com/CursedPrograms/RIFT), ensure NORA is active on:
+* `localhost:5003`
+
 ---
 
 <div align="center">
