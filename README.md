@@ -92,6 +92,9 @@ NORA is an omnidirectional mobile robot platform built around the ESP32, featuri
 #### Broadcast Network:
 - ap_ssid     = "NORA";
 - ap_password = "12345678";
+
+#### Connect to [RIFT](https://github.com/CursedPrograms/RIFT):
+- autoconnect on rift: localhost:5000, dream: localhost:5001 or nora: localhost:5003
 ---
 
 <div align="center">
