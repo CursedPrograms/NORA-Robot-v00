@@ -93,55 +93,75 @@ NORA is an omnidirectional mobile robot platform built around the ESP32, featuri
 #### MOTOR PINS - ESP32
 **L298N-0**
 MOTOR 0
+```
 ENA1 → GPIO 5   (PWM)
 M1_1 → GPIO 16
 M1_2 → GPIO 17
+```
 
 MOTOR 1
+```
 ENA2 → GPIO 23  (PWM)
 M2_1 → GPIO 18
 M2_2 → GPIO 19
+```
 
 **L298N-1**
 MOTOR 2
+```
 ENB1 → GPIO 12  (PWM)
 M3_1 → GPIO 13
 M3_2 → GPIO 14
+```
 
 MOTOR 3
+```
 ENB2 → GPIO 27  (PWM)
 M4_1 → GPIO 26
 M4_2 → GPIO 25
+```
 
 ### ⚙️ ESP32 NET SUMMARY
 
 #### PWM
+```
 GPIO5  → ENA1
 GPIO23 → ENA2
 GPIO12 → ENB1
 GPIO27 → ENB2
+```
 
 #### Direction
+```
 GPIO16,17 → Motor0 direction
 GPIO18,19 → Motor1 direction
 GPIO13,14 → Motor2 direction
 GPIO26,25 → Motor3 direction
+```
 
 ---
 
 #### 📡 ARDUINO SENSOR SYSTEM
 ##### FRONT ULTRASONIC
+```
 F_TRIG → A0
 F_ECHO → A1
+```
 ##### LEFT ULTRASONIC
+```
 L_TRIG → D6
 L_ECHO → D7
+```
 ##### BACK ULTRASONIC
+```
 B_TRIG → A4
 B_ECHO → A5
+```
 ##### RIGHT ULTRASONIC
+```
 R_TRIG → A2
 R_ECHO → A3
+```
 ---
 
 <div align="center">
