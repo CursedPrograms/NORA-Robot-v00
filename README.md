@@ -175,6 +175,8 @@ B_ECHO → A5
 R_TRIG → A2
 R_ECHO → A3
 ```
+> [!TIP]
+> **Pro-Tip:** Make sure all modules share a common ground (GND) for stable operation.
 ---
 
 <div align="center">
