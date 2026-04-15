@@ -52,6 +52,8 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 ---
 
 ## Prerequisites
+<details>
+<summary><b>View Prerequisites</b></summary>
 
 ### Software
 - [Arduino IDE](https://docs.arduino.cc/software/ide/)
@@ -86,6 +88,9 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 |-----------|---------|
 | Ultrasonic Sensors | 4x HC-SR04 (Front, Back, Left, Right)|
 | Line Follower | 3-Channel Line Tracking Sensor |
+
+
+</details>
 
 ---
 
