@@ -29,19 +29,25 @@
 - [DREAM](https://github.com/CursedPrograms/DREAM)
 - [RIFT](https://github.com/CursedPrograms/RIFT)
 
+---
+
 <div align="center">
   <img src="images/NORA1.jpg" alt="NORA Robot" width="400"/>
 </div>
+
+---
 
 ## Overview
 
 NORA is an omnidirectional mobile robot platform built around the ESP32, featuring 4-wheel independent drive, ultrasonic obstacle detection in all directions, and UV light capabilities. The robot creates its own WiFi access point for remote control and monitoring.
 
-## Prerequisites
+---
 
+## Prerequisites
+---
 ### Software
 - [Arduino IDE](https://docs.arduino.cc/software/ide/)
-
+---
 ### Hardware
 
 #### Chassis
@@ -65,68 +71,91 @@ NORA is an omnidirectional mobile robot platform built around the ESP32, featuri
 - 4x Ultrasonic Sensors (HC-SR04 or compatible)
 - UV Light Module
 
-### Libraries:
+#### Libraries:
 
 - SoftwareSerial.h
 - WiFi.h
 - WebServer.h
 
+---
 ### Network Setup:
 #### Broadcast Network:
 - ap_ssid     = "NORA";
 - ap_password = "12345678";
+---
 
 <div align="center">
   <img src="images/NORA2.jpg" alt="NORA Robot" width="400"/>
 </div>
 
-### Pin Configuration - MOTOR PINS - ESP32
+---
+### Pin Configuration
+#### MOTOR PINS - ESP32
+**L298N-0**
+MOTOR 0
+ENA1 → GPIO 5   (PWM)
+M1_1 → GPIO 16
+M1_2 → GPIO 17
 
-    ENA1: 5
-    M1_1: 16
-    M1_2: 17
-    ENA2: 23
-    M2_1: 18
-    M2_2: 19
-    ENB1: 12
-    M3_1: 13
-    M3_2: 14
-    ENB2: 27
-    M4_1: 26
-    M4_2: 25
+MOTOR 1
+ENA2 → GPIO 23  (PWM)
+M2_1 → GPIO 18
+M2_2 → GPIO 19
 
-### Pin Configuration - Sensors Arduino
+**L298N-1**
+MOTOR 2
+ENB1 → GPIO 12  (PWM)
+M3_1 → GPIO 13
+M3_2 → GPIO 14
 
-Front
+MOTOR 3
+ENB2 → GPIO 27  (PWM)
+M4_1 → GPIO 26
+M4_2 → GPIO 25
 
-    F_TRIG: A0
-    F_ECHO: A1
+### ⚙️ ESP32 NET SUMMARY
 
-Left
+#### PWM
+GPIO5  → ENA1
+GPIO23 → ENA2
+GPIO12 → ENB1
+GPIO27 → ENB2
 
-    L_TRIG: 6
-    L_ECHO: 7
+#### Direction
+GPIO16,17 → Motor0 direction
+GPIO18,19 → Motor1 direction
+GPIO13,14 → Motor2 direction
+GPIO26,25 → Motor3 direction
 
-Back
+---
 
-    B_TRIG: A4
-    B_ECHO: A5
-
-Right
-
-    R_TRIG: A2
-    R_ECHO: A3
+#### 📡 ARDUINO SENSOR SYSTEM
+##### FRONT ULTRASONIC
+F_TRIG → A0
+F_ECHO → A1
+##### LEFT ULTRASONIC
+L_TRIG → D6
+L_ECHO → D7
+##### BACK ULTRASONIC
+B_TRIG → A4
+B_ECHO → A5
+##### RIGHT ULTRASONIC
+R_TRIG → A2
+R_ECHO → A3
+---
 
 <div align="center">
   <img src="images/NORA4.jpg" alt="NORA Robot" width="400"/>
 </div>
-
+---
 
 ### ACEBOTT ESP32 Documentation
 
 https://acebottteam.github.io/acebott-docs-master/board/ESP32/QA007%20ESP32%20Max%20V1.0%20Controller%20Board.html
 
 https://acebottteam.github.io/acebott-docs-master/getting%20started/Arduino/Download%20CH340%20Driver%20on%20Windows%20System.html
+
+---
 
 <div align="center">
   <img src="images/NORA5.jpg" alt="NORA Robot" width="400"/>
