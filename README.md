@@ -43,7 +43,7 @@
 ## 📖 Overview
 
 <details>
-<summary><b>View Overview</b></summary>
+<summary><b>Overview</b></summary>
 
 NORA is built on the **ESP32**, utilizing its dual-core processing to handle a custom WiFi Access Point for remote operation while simultaneously managing reactive obstacle avoidance via a 4-sensor ultrasonic array.
 
@@ -59,7 +59,7 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 
 ## Prerequisites
 <details>
-<summary><b>View Prerequisites</b></summary>
+<summary><b>Prerequisites</b></summary>
 
 ### Software
 - [Arduino IDE](https://docs.arduino.cc/software/ide/)
@@ -121,7 +121,7 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 > **Ground Loop Warning:** All modules must share a common GND. Failure to bridge grounds will cause erratic motor behavior and sensor noise.
 
 <details>
-<summary><b>View ESP32 Motor Controller Configuration</b></summary>
+<summary><b>ESP32 Motor Controller Configuration</b></summary>
 
 #### L298N-0 (Front Drive)
 | Motor | PWM Pin | Dir 1 | Dir 2 |
@@ -137,7 +137,7 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 </details>
 
 <details>
-<summary><b>View UNO Sensor Array Wiring</b></summary>
+<summary><b>UNO Sensor Array Wiring</b></summary>
 
 | Direction | Trigger Pin | Echo Pin |
 | :--- | :--- | :--- |
@@ -175,10 +175,14 @@ To connect via [RIFT](https://github.com/CursedPrograms/RIFT), ensure NORA is ac
   <img src="images/NORA4.jpg" alt="NORA Robot" width="400"/>
 </div>
 ---
+<details>
+<summary><b>📂 Documentation & Assets</b></summary>
 
-## 📂 Documentation & Assets
 * [ACEBOTT ESP32 Max V1.0 Docs](https://acebottteam.github.io/acebott-docs-master/board/ESP32/QA007%20ESP32%20Max%20V1.0%20Controller%20Board.html)
 * [CH340 Driver Download](https://acebottteam.github.io/acebott-docs-master/getting%20started/Arduino/Download%20CH340%20Driver%20on%20Windows%20System.html)
+
+</details>
+
 ---
 
 <div align="center">
