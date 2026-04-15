@@ -41,6 +41,10 @@
 ---
 
 ## 📖 Overview
+
+<details>
+<summary><b>View Overview</b></summary>
+
 NORA is built on the **ESP32**, utilizing its dual-core processing to handle a custom WiFi Access Point for remote operation while simultaneously managing reactive obstacle avoidance via a 4-sensor ultrasonic array.
 
 ### Core Features
@@ -48,6 +52,8 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 - [x] **Self-Hosted AP:** No router required for field operation.
 - [x] **Reactive Safety:** 360° sensor coverage for auto-braking.
 - [x] **Internal UV:** Specialized UV light disinfection capabilities.
+
+</details>
 
 ---
 
