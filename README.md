@@ -50,26 +50,34 @@ NORA is an omnidirectional mobile robot platform built around the ESP32, featuri
 ---
 ### Hardware
 
-#### Chassis
-- Omnidirectional Robot Chassis
+### Microcontrollers
+| **Component** | **Details** |
+|-----------|---------|
+| Microcontroller 0 | ESP32 (ACEBOTT QA007 Max Controller Board) | Dev0 |
+| Microcontroller 1 | Arduino UNO | Dev1 |
 
-#### Microcontrollers
-- ESP32 (ACEBOTT QA007 Max Controller Board)
-- Arduino Uno
+### Chassis & Motion
+| **Component** | **Details** |
+|-----------|---------|
+| Chassis | Omnidirectional Robot Chassis |
+| Motor Driver | 2x L298N |
+| Motors | 4x 5V DC Motors |
 
-#### User Controllers
-- PC, Android, iPhone  (any device with Wi-Fi and a web browser)
+### User Controllers
+| **Component** | **Details** |
+|-----------|---------|
+| Interface | PC, Android, iPhone |
 
-#### Motors & Drivers
-- 2x L298N Motor Drivers
-- 4x 5V DC Motors
+### Power System
+| **Component** | **Details** |
+|-----------|---------|
+| Battery | 2s 18650|
 
-#### Power Delivery
-- 2s 16850 batteries
-
-#### Sensors and Peripherals
-- 4x Ultrasonic Sensors (HC-SR04 or compatible)
-- UV Light Module
+### Sensors
+| **Component** | **Details** |
+|-----------|---------|
+| Ultrasonic Sensors | HC-SR04 × 4|
+| Line Follower | 3-Channel Line Tracking Sensor |
 
 #### Libraries:
 
