@@ -19,10 +19,9 @@
   </div>
 <br>
 
-# NORA: Nomadic Omnidirectional Reactive Automaton
+---
 
-> [!IMPORTANT]
-> NORA is a high-mobility robot platform featuring 4-wheel independent drive, ultrasonic detection, and internal UV sterilization modules.
+# NORA: Nomadic Omnidirectional Reactive Automaton
 
 ## Related Projects
 
@@ -150,6 +149,9 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 
 ## 🌐 Connectivity & Controls
 
+<details>
+<summary><b>Connectivity & Controls</b></summary>
+
 ### Network Configuration
 | Parameter | Value |
 | :--- | :--- |
@@ -159,6 +161,8 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 ### RIFT Integration
 To connect via [RIFT](https://github.com/CursedPrograms/RIFT), ensure NORA is active on:
 * `localhost:5003`
+
+</details>
 
 ---
 
