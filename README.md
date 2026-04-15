@@ -44,10 +44,10 @@ NORA is an omnidirectional mobile robot platform built around the ESP32, featuri
 ---
 
 ## Prerequisites
----
+
 ### Software
 - [Arduino IDE](https://docs.arduino.cc/software/ide/)
----
+
 ### Hardware
 
 ### Microcontrollers
@@ -78,6 +78,8 @@ NORA is an omnidirectional mobile robot platform built around the ESP32, featuri
 |-----------|---------|
 | Ultrasonic Sensors | HC-SR04 × 4|
 | Line Follower | 3-Channel Line Tracking Sensor |
+
+---
 
 #### Libraries:
 
