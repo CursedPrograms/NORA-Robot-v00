@@ -174,7 +174,9 @@ To connect via [RIFT](https://github.com/CursedPrograms/RIFT), ensure NORA is ac
 <div align="center">
   <img src="images/NORA4.jpg" alt="NORA Robot" width="400"/>
 </div>
+
 ---
+
 <details>
 <summary><b>📂 Documentation & Assets</b></summary>
 
