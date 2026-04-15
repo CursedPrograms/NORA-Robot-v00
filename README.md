@@ -21,6 +21,9 @@
 
 # NORA: Nomadic Omnidirectional Reactive Automaton
 
+> [!IMPORTANT]
+> NORA is a high-mobility robot platform featuring 4-wheel independent drive, ultrasonic detection, and internal UV sterilization modules.
+
 ## Related Projects
 
 - [KIDA-Robot-v01](https://github.com/CursedPrograms/KIDA-Robot-v01)
@@ -37,9 +40,14 @@
 
 ---
 
-## Overview
+## 📖 Overview
+NORA is built on the **ESP32**, utilizing its dual-core processing to handle a custom WiFi Access Point for remote operation while simultaneously managing reactive obstacle avoidance via a 4-sensor ultrasonic array.
 
-NORA is an omnidirectional mobile robot platform built around the ESP32, featuring 4-wheel independent drive, ultrasonic obstacle detection in all directions, and UV light capabilities. The robot creates its own WiFi access point for remote control and monitoring.
+### Core Features
+- [x] **Omnidirectional Movement:** Move in any direction without turning.
+- [x] **Self-Hosted AP:** No router required for field operation.
+- [x] **Reactive Safety:** 360° sensor coverage for auto-braking.
+- [x] **Internal UV:** Specialized UV light disinfection capabilities.
 
 ---
 
@@ -76,7 +84,7 @@ NORA is an omnidirectional mobile robot platform built around the ESP32, featuri
 ### Sensors
 | **Component** | **Details** |
 |-----------|---------|
-| Ultrasonic Sensors | HC-SR04 × 4|
+| Ultrasonic Sensors | 4x HC-SR04 (Front, Back, Left, Right)|
 | Line Follower | 3-Channel Line Tracking Sensor |
 
 ---
@@ -88,13 +96,19 @@ NORA is an omnidirectional mobile robot platform built around the ESP32, featuri
 - WebServer.h
 
 ---
-### Network Setup:
-#### Broadcast Network:
-- ap_ssid     = "NORA";
-- ap_password = "12345678";
 
-#### Connect to [RIFT](https://github.com/CursedPrograms/RIFT):
-- autoconnect on rift: localhost:5000, dream: localhost:5001 or nora: localhost:5003
+## 🌐 Connectivity & Controls
+
+### Network Configuration
+| Parameter | Value |
+| :--- | :--- |
+| **SSID** | `NORA` |
+| **Password** | `12345678` |
+
+### RIFT Integration
+To connect via [RIFT](https://github.com/CursedPrograms/RIFT), ensure NORA is active on:
+* `localhost:5003`
+
 ---
 
 <div align="center">
@@ -102,81 +116,37 @@ NORA is an omnidirectional mobile robot platform built around the ESP32, featuri
 </div>
 
 ---
-### Pin Configuration
-#### MOTOR PINS - ESP32
-**L298N-0**
-MOTOR 0
-```
-ENA1 → GPIO 5   (PWM)
-M1_1 → GPIO 16
-M1_2 → GPIO 17
-```
+## ⚡ Technical Pinouts
 
-MOTOR 1
-```
-ENA2 → GPIO 23  (PWM)
-M2_1 → GPIO 18
-M2_2 → GPIO 19
-```
+<details>
+<summary><b>View ESP32 Motor Controller Configuration</b></summary>
 
-**L298N-1**
-MOTOR 2
-```
-ENB1 → GPIO 12  (PWM)
-M3_1 → GPIO 13
-M3_2 → GPIO 14
-```
+#### L298N-0 (Front Drive)
+| Motor | PWM Pin | Dir 1 | Dir 2 |
+| :--- | :--- | :--- | :--- |
+| **M0** | `GPIO 5` | `GPIO 16` | `GPIO 17` |
+| **M1** | `GPIO 23`| `GPIO 18` | `GPIO 19` |
 
-MOTOR 3
-```
-ENB2 → GPIO 27  (PWM)
-M4_1 → GPIO 26
-M4_2 → GPIO 25
-```
+#### L298N-1 (Rear Drive)
+| Motor | PWM Pin | Dir 1 | Dir 2 |
+| :--- | :--- | :--- | :--- |
+| **M2** | `GPIO 12` | `GPIO 13` | `GPIO 14` |
+| **M3** | `GPIO 27` | `GPIO 26` | `GPIO 25` |
+</details>
 
-### ⚙️ ESP32 NET SUMMARY
+<details>
+<summary><b>View UNO Sensor Array Wiring</b></summary>
 
-#### PWM
-```
-GPIO5  → ENA1
-GPIO23 → ENA2
-GPIO12 → ENB1
-GPIO27 → ENB2
-```
+| Direction | Trigger Pin | Echo Pin |
+| :--- | :--- | :--- |
+| **FRONT** | `A0` | `A1` |
+| **LEFT** | `D6` | `D7` |
+| **BACK** | `A4` | `A5` |
+| **RIGHT** | `A2` | `A3` |
+</details>
 
-#### Direction
-```
-GPIO16,17 → Motor0 direction
-GPIO18,19 → Motor1 direction
-GPIO13,14 → Motor2 direction
-GPIO26,25 → Motor3 direction
-```
-
----
-
-#### 📡 ARDUINO SENSOR SYSTEM
-##### FRONT ULTRASONIC
-```
-F_TRIG → A0
-F_ECHO → A1
-```
-##### LEFT ULTRASONIC
-```
-L_TRIG → D6
-L_ECHO → D7
-```
-##### BACK ULTRASONIC
-```
-B_TRIG → A4
-B_ECHO → A5
-```
-##### RIGHT ULTRASONIC
-```
-R_TRIG → A2
-R_ECHO → A3
-```
 > [!TIP]
-> **Pro-Tip:** Make sure all modules share a common ground (GND) for stable operation.
+> **Pro-Tip:** Common GND is non-negotiable. If the motors behave erratically or the sensors give "0" readings, check your ground bridge first!
 ---
 
 <div align="center">
@@ -184,12 +154,9 @@ R_ECHO → A3
 </div>
 ---
 
-### ACEBOTT ESP32 Documentation
-
-https://acebottteam.github.io/acebott-docs-master/board/ESP32/QA007%20ESP32%20Max%20V1.0%20Controller%20Board.html
-
-https://acebottteam.github.io/acebott-docs-master/getting%20started/Arduino/Download%20CH340%20Driver%20on%20Windows%20System.html
-
+## 📂 Documentation & Assets
+* [ACEBOTT ESP32 Max V1.0 Docs](https://acebottteam.github.io/acebott-docs-master/board/ESP32/QA007%20ESP32%20Max%20V1.0%20Controller%20Board.html)
+* [CH340 Driver Download](https://acebottteam.github.io/acebott-docs-master/getting%20started/Arduino/Download%20CH340%20Driver%20on%20Windows%20System.html)
 ---
 
 <div align="center">
