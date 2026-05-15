@@ -297,7 +297,7 @@ void handleRoot() {
       background: #111; color: #eee;
       font-family: 'Segoe UI', sans-serif;
       display: flex; flex-direction: column; align-items: center;
-      min-height: 100vh; padding: 20px; gap: 16px; touch-action: none;
+      min-height: 100vh; padding: 20px; gap: 16px;
     }
     h1 { font-size: 1.6rem; letter-spacing: 3px; color: #0af; }
     h2 { font-size: 0.8rem; color: #555; letter-spacing: 1px; }
@@ -339,6 +339,7 @@ void handleRoot() {
       color: #eee; font-size: 1.5rem; cursor: pointer; user-select: none;
       display: flex; align-items: center; justify-content: center;
       -webkit-tap-highlight-color: transparent; transition: opacity 0.2s;
+      touch-action: none;
     }
     .btn.disabled { opacity: 0.25; pointer-events: none; }
     .btn.pressed { background: #004466; border-color: #0af; }
