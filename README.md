@@ -103,6 +103,7 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 - SoftwareSerial.h
 - WiFi.h
 - WebServer.h
+- Preferences.h
 
 ---
 
@@ -137,12 +138,48 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 <details>
 <summary><b>UNO Sensor Array Wiring</b></summary>
 
+#### Ultrasonic Sensors
 | Direction | Trigger Pin | Echo Pin |
 | :--- | :--- | :--- |
 | **FRONT** | `A0` | `A1` |
 | **LEFT** | `D6` | `D7` |
 | **BACK** | `A4` | `A5` |
 | **RIGHT** | `A2` | `A3` |
+
+#### Line Follower (left → right)
+| Sensor | Pin |
+| :--- | :--- |
+| **Left** | `D4` |
+| **Middle** | `D5` |
+| **Right** | `D6` |
+
+#### UV Light
+| Component | Pin |
+| :--- | :--- |
+| **UV Light** | `D10` |
+</details>
+
+<details>
+<summary><b>ESP32 ↔ Arduino Serial Link</b></summary>
+
+Bidirectional UART at 9600 baud. Both devices must share a common GND.
+
+| Signal | From | To |
+| :--- | :--- | :--- |
+| Sensor data (TX) | Arduino `D9` (SoftwareSerial TX) | ESP32 `RX` |
+| UV commands (TX) | ESP32 `TX` | Arduino `D8` (SoftwareSerial RX) |
+
+**Data format (Arduino → ESP32):**
+```
+F:23.4,L:10.1,B:45.0,R:8.3,LF:010
+```
+`LF:` is a 3-digit string — left/mid/right sensor states (0 or 1).
+
+**Command format (ESP32 → Arduino):**
+```
+UV:1   (UV light on)
+UV:0   (UV light off)
+```
 </details>
 
 > [!TIP]
@@ -162,8 +199,15 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 | **Password** | `12345678` |
 
 ### RIFT Integration
-To connect via [RIFT](https://github.com/CursedPrograms/RIFT), ensure NORA is active on:
-* `localhost:5003`
+To connect via [RIFT](https://github.com/CursedPrograms/RIFT), connect to the `NORA` WiFi network then reach NORA at:
+* `http://192.168.4.1:5002`
+
+### Drive Modes
+| Mode | Description |
+| :--- | :--- |
+| **Manual** | D-pad remote control via web UI |
+| **Auto** | Omnidirectional obstacle avoidance using ultrasonic sensors |
+| **Line** | Line following using the 3-channel IR sensor |
 
 </details>
 
