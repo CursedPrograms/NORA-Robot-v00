@@ -35,9 +35,10 @@ enum DriveMode { MODE_MANUAL, MODE_AUTO, MODE_LINE };
 DriveMode driveMode = MODE_MANUAL;
 
 // =====================
-// CALIBRATION
+// CALIBRATION & SPEED
 // =====================
-int cal[4] = {255, 255, 255, 255};  // M1, M2, M3, M4
+int cal[4]   = {255, 255, 255, 255};  // per-motor PWM (0-255)
+int speedPct = 100;                   // global speed (0-100%)
 Preferences prefs;
 
 // =====================
@@ -58,8 +59,14 @@ unsigned long autoCooldown = 0;
 // =====================
 float front_cm = -1, left_cm = -1, back_cm = -1, right_cm = -1;
 int   lf_l = 0, lf_m = 0, lf_r = 0;
-bool  uvOn = false;
 String serialBuffer = "";
+
+// =====================
+// UV
+// =====================
+// 0=off  1=on  2=blink
+int           uvMode     = 0;
+unsigned long lastUVSend = 0;
 
 // =====================
 // SETUP
@@ -68,10 +75,11 @@ void setup() {
   Serial.begin(9600);
 
   prefs.begin("cal", true);
-  cal[0] = prefs.getInt("m1", 255);
-  cal[1] = prefs.getInt("m2", 255);
-  cal[2] = prefs.getInt("m3", 255);
-  cal[3] = prefs.getInt("m4", 255);
+  cal[0]   = prefs.getInt("m1",  255);
+  cal[1]   = prefs.getInt("m2",  255);
+  cal[2]   = prefs.getInt("m3",  255);
+  cal[3]   = prefs.getInt("m4",  255);
+  speedPct = prefs.getInt("spd", 100);
   prefs.end();
 
   WiFi.softAP(ap_ssid, ap_password);
@@ -81,7 +89,7 @@ void setup() {
   pinMode(ENB1, OUTPUT); pinMode(M3_1, OUTPUT); pinMode(M3_2, OUTPUT);
   pinMode(ENB2, OUTPUT); pinMode(M4_1, OUTPUT); pinMode(M4_2, OUTPUT);
 
-  // Manual movement — only in MANUAL mode
+  // Manual movement
   server.on("/fw",    []() { if (driveMode == MODE_MANUAL) moveForward();  server.send(200, "text/plain", "OK"); });
   server.on("/bw",    []() { if (driveMode == MODE_MANUAL) moveBackward(); server.send(200, "text/plain", "OK"); });
   server.on("/left",  []() { if (driveMode == MODE_MANUAL) strafeLeft();   server.send(200, "text/plain", "OK"); });
@@ -91,22 +99,14 @@ void setup() {
   server.on("/stop",  []() { if (driveMode == MODE_MANUAL) stopMotors();   server.send(200, "text/plain", "OK"); });
 
   // Mode switching
-  server.on("/modeManual", []() {
-    driveMode = MODE_MANUAL; stopMotors();
-    server.send(200, "text/plain", "OK");
-  });
-  server.on("/modeAuto", []() {
-    driveMode = MODE_AUTO; stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0;
-    server.send(200, "text/plain", "OK");
-  });
-  server.on("/modeLine", []() {
-    driveMode = MODE_LINE; stopMotors();
-    server.send(200, "text/plain", "OK");
-  });
+  server.on("/modeManual", []() { driveMode = MODE_MANUAL; stopMotors(); server.send(200, "text/plain", "OK"); });
+  server.on("/modeAuto",   []() { driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; server.send(200, "text/plain", "OK"); });
+  server.on("/modeLine",   []() { driveMode = MODE_LINE;   stopMotors(); server.send(200, "text/plain", "OK"); });
 
-  // UV light — sends command to Arduino via serial
-  server.on("/uvOn",  []() { uvOn = true;  Serial.println("UV:1"); server.send(200, "text/plain", "OK"); });
-  server.on("/uvOff", []() { uvOn = false; Serial.println("UV:0"); server.send(200, "text/plain", "OK"); });
+  // UV — 0=off 1=on 2=blink
+  server.on("/uvOff",   []() { uvMode = 0; server.send(200, "text/plain", "OK"); });
+  server.on("/uvOn",    []() { uvMode = 1; server.send(200, "text/plain", "OK"); });
+  server.on("/uvBlink", []() { uvMode = 2; server.send(200, "text/plain", "OK"); });
 
   // Calibration
   server.on("/setcal", []() {
@@ -116,27 +116,38 @@ void setup() {
     if (server.hasArg("m4")) cal[3] = constrain(server.arg("m4").toInt(), 0, 255);
     server.send(200, "text/plain", "OK");
   });
+  server.on("/setspeed", []() {
+    if (server.hasArg("v")) speedPct = constrain(server.arg("v").toInt(), 0, 100);
+    server.send(200, "text/plain", "OK");
+  });
   server.on("/savecal", []() {
     prefs.begin("cal", false);
-    prefs.putInt("m1", cal[0]); prefs.putInt("m2", cal[1]);
-    prefs.putInt("m3", cal[2]); prefs.putInt("m4", cal[3]);
+    prefs.putInt("m1",  cal[0]); prefs.putInt("m2",  cal[1]);
+    prefs.putInt("m3",  cal[2]); prefs.putInt("m4",  cal[3]);
+    prefs.putInt("spd", speedPct);
     prefs.end();
     server.send(200, "text/plain", "OK");
   });
   server.on("/getcal", []() {
-    String json = "{\"m1\":" + String(cal[0]) + ",\"m2\":" + String(cal[1]) +
-                  ",\"m3\":" + String(cal[2]) + ",\"m4\":" + String(cal[3]) + "}";
+    String json = "{\"m1\":"  + String(cal[0])   +
+                  ",\"m2\":"  + String(cal[1])   +
+                  ",\"m3\":"  + String(cal[2])   +
+                  ",\"m4\":"  + String(cal[3])   +
+                  ",\"spd\":" + String(speedPct) + "}";
     server.send(200, "application/json", json);
   });
 
   server.on("/sensors", []() {
-    String json = "{\"F\":"   + String(front_cm, 1) +
-                  ",\"L\":"   + String(left_cm,  1) +
-                  ",\"B\":"   + String(back_cm,  1) +
-                  ",\"R\":"   + String(right_cm, 1) +
-                  ",\"lfl\":" + String(lf_l) +
-                  ",\"lfm\":" + String(lf_m) +
-                  ",\"lfr\":" + String(lf_r) + "}";
+    String json = "{\"F\":"    + String(front_cm, 1) +
+                  ",\"L\":"    + String(left_cm,  1) +
+                  ",\"B\":"    + String(back_cm,  1) +
+                  ",\"R\":"    + String(right_cm, 1) +
+                  ",\"lfl\":"  + String(lf_l)        +
+                  ",\"lfm\":"  + String(lf_m)        +
+                  ",\"lfr\":"  + String(lf_r)        +
+                  ",\"mode\":" + String((int)driveMode) +
+                  ",\"dir\":"  + String(autoDir)     +
+                  ",\"uv\":"   + String(uvMode)      + "}";
     server.send(200, "application/json", json);
   });
 
@@ -151,14 +162,21 @@ void loop() {
   server.handleClient();
   readSerialSensors();
 
+  // Broadcast UV state to Arduino every 500ms
+  unsigned long now = millis();
+  if (now - lastUVSend >= 500) {
+    if      (uvMode == 0) Serial.println("UV:0");
+    else if (uvMode == 1) Serial.println("UV:1");
+    else                  Serial.println("UV:B");
+    lastUVSend = now;
+  }
+
   if      (driveMode == MODE_AUTO) AutonomousMode(front_cm, left_cm, back_cm, right_cm);
   else if (driveMode == MODE_LINE) LineFollowerMode(lf_l, lf_m, lf_r);
 }
 
 // =====================
 // READ ARDUINO SERIAL
-// Arduino TX (pin 9) → ESP32 RX
-// Expects: F:23.4,L:10.1,B:45.0,R:8.3,LF:010
 // =====================
 void readSerialSensors() {
   while (Serial.available()) {
@@ -177,7 +195,7 @@ void parseSensorLine(String line) {
     int idx = line.indexOf(key + ":");
     if (idx == -1) return -1;
     int start = idx + key.length() + 1;
-    int end = line.indexOf(',', start);
+    int end   = line.indexOf(',', start);
     String val = (end == -1) ? line.substring(start) : line.substring(start, end);
     return val.toFloat();
   };
@@ -198,38 +216,29 @@ void parseSensorLine(String line) {
 // =====================
 // LINE FOLLOWER MODE
 // =====================
-// Sensors: lf_l=left, lf_m=middle, lf_r=right (1 = on line)
-// Uses fwd/bwd/left/right relative to the line follower's travel direction.
-// Strafing is avoided here — turns are more reliable for line tracking.
+// Remembers last turn direction to spin-search when the line is lost.
 
 void LineFollowerMode(int l, int m, int r) {
+  static int lastTurn = 1;  // 1=right, -1=left
   int pattern = (l << 2) | (m << 1) | r;
   switch (pattern) {
-    case 0b010:  // centered
-    case 0b111:  // wide line / cross
-      moveForward(); break;
-    case 0b110:  // drifting right — correct left
-      turnLeft();  break;
-    case 0b100:  // sharp right — hard left
-      turnLeft();  break;
-    case 0b011:  // drifting left — correct right
-      turnRight(); break;
-    case 0b001:  // sharp left — hard right
-      turnRight(); break;
-    case 0b000:  // lost line — stop
-      stopMotors(); break;
-    default:
-      moveForward(); break;
+    case 0b010:
+    case 0b111: moveForward();              break;
+    case 0b110: lastTurn = -1; turnLeft();  break;
+    case 0b100: lastTurn = -1; turnLeft();  break;
+    case 0b011: lastTurn =  1; turnRight(); break;
+    case 0b001: lastTurn =  1; turnRight(); break;
+    case 0b000:
+      // Lost line — spin in last known direction to find it again
+      if (lastTurn < 0) turnLeft(); else turnRight();
+      break;
+    default: moveForward(); break;
   }
 }
 
 // =====================
 // AUTONOMOUS MODE
 // =====================
-// NORA is omnidirectional — no preferred forward direction.
-// Picks the clearest of all 4 sides and drives that way.
-// Non-blocking state machine — no delay() calls.
-
 void moveDir(int dir) {
   switch (dir) {
     case DIR_FRONT: moveForward();  break;
@@ -301,20 +310,32 @@ void handleRoot() {
     }
     h1 { font-size: 1.6rem; letter-spacing: 3px; color: #0af; }
     h2 { font-size: 0.8rem; color: #555; letter-spacing: 1px; }
+
+    /* Sensors */
     #sensors { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; max-width: 340px; }
     .sensor-box {
-      background: #1e1e1e; border: 1px solid #333; border-radius: 8px;
-      padding: 8px 12px; font-size: 0.85rem; display: flex; justify-content: space-between;
+      background: #1e1e1e; border: 2px solid #333; border-radius: 8px;
+      padding: 8px 12px; font-size: 0.85rem;
+      display: flex; flex-direction: column; gap: 4px;
+      transition: border-color 0.3s, background 0.3s;
     }
+    .sensor-top { display: flex; justify-content: space-between; }
     .sensor-box span { color: #0af; font-weight: bold; }
-    #lfRow {
-      display: flex; gap: 8px; align-items: center; font-size: 0.8rem; color: #666;
-    }
+    .sensor-box.warn  { border-color: #f90; }
+    .sensor-box.crit  { border-color: #f44; background: #1a0a0a; }
+    .sensor-box.travel { border-color: #0af; background: #001a2a; }
+    .dist-bar-bg { background: #2a2a2a; border-radius: 3px; height: 4px; overflow: hidden; }
+    .dist-bar    { height: 4px; border-radius: 3px; background: #0af; transition: width 0.3s, background 0.3s; width: 0%; }
+
+    /* Line follower dots */
+    #lfRow { display: flex; gap: 8px; align-items: center; font-size: 0.8rem; color: #666; }
     .lf-dot {
-      width: 22px; height: 22px; border-radius: 50%;
-      background: #222; border: 2px solid #444; transition: background 0.1s;
+      width: 20px; height: 20px; border-radius: 50%;
+      background: #222; border: 2px solid #444; transition: background 0.1s, border-color 0.1s;
     }
     .lf-dot.on { background: #0af; border-color: #0af; }
+
+    /* Mode buttons */
     #modeRow { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
     .mode-btn {
       padding: 10px 18px; border: 2px solid #333; border-radius: 8px;
@@ -322,12 +343,25 @@ void handleRoot() {
       background: #1e1e1e; color: #aaa;
     }
     .mode-btn.active { border-color: #0af; color: #0af; background: #001a2a; }
+
+    /* UV button */
     #uvBtn {
       padding: 9px 20px; border: 2px solid #444; border-radius: 8px;
       font-size: 0.85rem; font-weight: bold; cursor: pointer;
-      background: #1e1e1e; color: #aaa;
+      background: #1e1e1e; color: #aaa; transition: all 0.2s;
     }
-    #uvBtn.on { border-color: #bb0; color: #ff0; background: #1a1a00; }
+    #uvBtn.on    { border-color: #bb0; color: #ff0; background: #1a1900; }
+    #uvBtn.blink { border-color: #f80; color: #f80; background: #1a1000; }
+
+    /* Speed row */
+    #speedRow {
+      display: flex; align-items: center; gap: 10px;
+      width: 100%; max-width: 340px; font-size: 0.85rem; color: #aaa;
+    }
+    #speedRow input[type=range] { flex: 1; accent-color: #0af; }
+    #speedVal { width: 36px; text-align: right; color: #0af; font-weight: bold; }
+
+    /* D-pad */
     .dpad {
       display: grid;
       grid-template-columns: repeat(3, 80px);
@@ -342,7 +376,7 @@ void handleRoot() {
       touch-action: none;
     }
     .btn.disabled { opacity: 0.25; pointer-events: none; }
-    .btn.pressed { background: #004466; border-color: #0af; }
+    .btn.pressed  { background: #004466; border-color: #0af; }
     .btn.stop-btn { background: #2a0000; border-color: #a00; font-size: 0.8rem; font-weight: bold; color: #f55; }
     .btn.stop-btn.pressed { background: #500; }
     .fw    { grid-column: 2; grid-row: 1; }
@@ -353,6 +387,8 @@ void handleRoot() {
     .turnR { grid-column: 3; grid-row: 2; }
     .right { grid-column: 3; grid-row: 3; }
     #status { font-size: 0.8rem; color: #555; }
+
+    /* Calibration panel */
     #calPanel {
       width: 100%; max-width: 340px;
       background: #1a1a1a; border: 1px solid #333; border-radius: 10px;
@@ -363,7 +399,10 @@ void handleRoot() {
     .cal-row label { width: 24px; color: #aaa; }
     .cal-row input[type=range] { flex: 1; accent-color: #0af; }
     .cal-row span { width: 30px; text-align: right; color: #0af; font-weight: bold; }
-    #saveCalBtn { align-self: flex-end; padding: 6px 16px; background: #0a5; border: none; border-radius: 6px; color: #fff; font-size: 0.8rem; font-weight: bold; cursor: pointer; }
+    #saveCalBtn {
+      align-self: flex-end; padding: 6px 16px; background: #0a5; border: none;
+      border-radius: 6px; color: #fff; font-size: 0.8rem; font-weight: bold; cursor: pointer;
+    }
     #saveCalBtn.saved { background: #555; }
   </style>
 </head>
@@ -372,14 +411,29 @@ void handleRoot() {
   <h2>Nomadic Omnidirectional Reactive Automaton</h2>
 
   <div id="sensors">
-    <div class="sensor-box">Front <span id="sF">--</span> cm</div>
-    <div class="sensor-box">Back  <span id="sB">--</span> cm</div>
-    <div class="sensor-box">Left  <span id="sL">--</span> cm</div>
-    <div class="sensor-box">Right <span id="sR">--</span> cm</div>
+    <div class="sensor-box" id="boxF">
+      <div class="sensor-top">Front <span id="sF">--</span> cm</div>
+      <div class="dist-bar-bg"><div class="dist-bar" id="barF"></div></div>
+    </div>
+    <div class="sensor-box" id="boxB">
+      <div class="sensor-top">Back <span id="sB">--</span> cm</div>
+      <div class="dist-bar-bg"><div class="dist-bar" id="barB"></div></div>
+    </div>
+    <div class="sensor-box" id="boxL">
+      <div class="sensor-top">Left <span id="sL">--</span> cm</div>
+      <div class="dist-bar-bg"><div class="dist-bar" id="barL"></div></div>
+    </div>
+    <div class="sensor-box" id="boxR">
+      <div class="sensor-top">Right <span id="sR">--</span> cm</div>
+      <div class="dist-bar-bg"><div class="dist-bar" id="barR"></div></div>
+    </div>
   </div>
 
   <div id="lfRow">
-    Line: <div class="lf-dot" id="lfL"></div><div class="lf-dot" id="lfM"></div><div class="lf-dot" id="lfR"></div>
+    Line:
+    <div class="lf-dot" id="lfL"></div>
+    <div class="lf-dot" id="lfM"></div>
+    <div class="lf-dot" id="lfR"></div>
   </div>
 
   <div id="modeRow">
@@ -388,7 +442,13 @@ void handleRoot() {
     <button class="mode-btn"        id="btnLine"   onclick="setMode('Line')">LINE</button>
   </div>
 
-  <button id="uvBtn" onclick="toggleUV()">UV OFF</button>
+  <button id="uvBtn" onclick="cycleUV()">UV OFF</button>
+
+  <div id="speedRow">
+    Speed
+    <input id="speedSlider" type="range" min="0" max="100" value="100" oninput="setSpeed(this)">
+    <span id="speedVal">100%</span>
+  </div>
 
   <div class="dpad">
     <div class="btn fw"    data-cmd="/fw">&#9650;</div>
@@ -412,31 +472,82 @@ void handleRoot() {
 
 <script>
   let activeCmd = null, cmdInterval = null;
-  const calVals = [255,255,255,255];
-  let calTimer = null;
-  let uvState = false;
+  const calVals  = [255,255,255,255];
+  let calTimer   = null;
+  let speedTimer = null;
+  let uvState    = 0;       // 0=off 1=on 2=blink
   let currentMode = 'Manual';
+
+  // Direction index → sensor box id
+  const dirBox = ['boxF', 'boxR', 'boxB', 'boxL'];
 
   function cmd(c) { fetch(c).catch(() => {}); }
 
+  // ── Mode ──────────────────────────────
   function setMode(mode) {
     currentMode = mode;
     cmd('/mode' + mode);
-    ['Manual','Auto','Line'].forEach(m => {
-      document.getElementById('btn' + m).classList.toggle('active', m === mode);
-    });
+    ['Manual','Auto','Line'].forEach(m =>
+      document.getElementById('btn' + m).classList.toggle('active', m === mode)
+    );
     const isManual = mode === 'Manual';
     document.querySelectorAll('.btn').forEach(b => b.classList.toggle('disabled', !isManual));
   }
 
-  function toggleUV() {
-    uvState = !uvState;
-    cmd(uvState ? '/uvOn' : '/uvOff');
-    const btn = document.getElementById('uvBtn');
-    btn.textContent = uvState ? 'UV ON' : 'UV OFF';
-    btn.classList.toggle('on', uvState);
+  // ── UV ────────────────────────────────
+  const uvLabels   = ['UV OFF', 'UV ON', 'UV BLINK'];
+  const uvClasses  = ['', 'on', 'blink'];
+  const uvRoutes   = ['/uvOff', '/uvOn', '/uvBlink'];
+
+  function cycleUV() {
+    uvState = (uvState + 1) % 3;
+    applyUV();
+    cmd(uvRoutes[uvState]);
   }
 
+  function applyUV() {
+    const btn = document.getElementById('uvBtn');
+    btn.textContent = uvLabels[uvState];
+    btn.className   = uvClasses[uvState];
+  }
+
+  // ── Speed ─────────────────────────────
+  function setSpeed(slider) {
+    document.getElementById('speedVal').textContent = slider.value + '%';
+    clearTimeout(speedTimer);
+    speedTimer = setTimeout(() => cmd('/setspeed?v=' + slider.value), 200);
+  }
+
+  // ── Calibration ───────────────────────
+  function setCal(slider, idx, labelId) {
+    calVals[idx] = parseInt(slider.value);
+    document.getElementById(labelId).textContent = calVals[idx];
+    clearTimeout(calTimer);
+    calTimer = setTimeout(() =>
+      fetch(`/setcal?m1=${calVals[0]}&m2=${calVals[1]}&m3=${calVals[2]}&m4=${calVals[3]}`).catch(() => {})
+    , 200);
+  }
+
+  function saveCal() {
+    fetch('/savecal').then(() => {
+      const btn = document.getElementById('saveCalBtn');
+      btn.textContent = 'Saved!'; btn.classList.add('saved');
+      setTimeout(() => { btn.textContent = 'Save'; btn.classList.remove('saved'); }, 1500);
+    }).catch(() => {});
+  }
+
+  // Load saved cal + speed on page open
+  fetch('/getcal').then(r => r.json()).then(d => {
+    [d.m1, d.m2, d.m3, d.m4].forEach((v, i) => {
+      calVals[i] = v;
+      document.getElementById('sl' + (i+1)).value = v;
+      document.getElementById('v'  + (i+1)).textContent = v;
+    });
+    document.getElementById('speedSlider').value = d.spd;
+    document.getElementById('speedVal').textContent = d.spd + '%';
+  }).catch(() => {});
+
+  // ── D-pad ─────────────────────────────
   function startCmd(c) {
     if (activeCmd === c) return;
     stopCmd();
@@ -455,33 +566,6 @@ void handleRoot() {
     }
   }
 
-  function setCal(slider, idx, labelId) {
-    calVals[idx] = parseInt(slider.value);
-    document.getElementById(labelId).textContent = calVals[idx];
-    clearTimeout(calTimer);
-    calTimer = setTimeout(() => {
-      fetch(`/setcal?m1=${calVals[0]}&m2=${calVals[1]}&m3=${calVals[2]}&m4=${calVals[3]}`).catch(() => {});
-    }, 200);
-  }
-
-  function saveCal() {
-    fetch('/savecal').then(() => {
-      const btn = document.getElementById('saveCalBtn');
-      btn.textContent = 'Saved!';
-      btn.classList.add('saved');
-      setTimeout(() => { btn.textContent = 'Save'; btn.classList.remove('saved'); }, 1500);
-    }).catch(() => {});
-  }
-
-  // Load saved cal on page open
-  fetch('/getcal').then(r => r.json()).then(d => {
-    [d.m1, d.m2, d.m3, d.m4].forEach((v, i) => {
-      calVals[i] = v;
-      document.getElementById('sl' + (i+1)).value = v;
-      document.getElementById('v'  + (i+1)).textContent = v;
-    });
-  }).catch(() => {});
-
   document.querySelectorAll('.btn').forEach(btn => {
     const c = btn.dataset.cmd;
     btn.addEventListener('mousedown',  e => { e.preventDefault(); c === '/stop' ? cmd('/stop') : startCmd(c); btn.classList.add('pressed'); });
@@ -495,18 +579,49 @@ void handleRoot() {
   document.addEventListener('touchend', () => stopCmd());
 
   const keyMap = { 'ArrowUp':'/fw','ArrowDown':'/bw','ArrowLeft':'/left','ArrowRight':'/right','a':'/turnL','d':'/turnR',' ':'/stop' };
-  document.addEventListener('keydown', e => { const c = keyMap[e.key]; if (!c || currentMode !== 'Manual') return; e.preventDefault(); c === '/stop' ? cmd('/stop') : startCmd(c); });
-  document.addEventListener('keyup',   e => { if (keyMap[e.key] && keyMap[e.key] !== '/stop') stopCmd(); });
+  document.addEventListener('keydown', e => {
+    const c = keyMap[e.key];
+    if (!c || currentMode !== 'Manual') return;
+    e.preventDefault();
+    c === '/stop' ? cmd('/stop') : startCmd(c);
+  });
+  document.addEventListener('keyup', e => { if (keyMap[e.key] && keyMap[e.key] !== '/stop') stopCmd(); });
+
+  // ── Sensor polling ────────────────────
+  function updateSensor(boxId, barId, spanId, value) {
+    const box = document.getElementById(boxId);
+    const bar = document.getElementById(barId);
+    document.getElementById(spanId).textContent = value > 0 ? value : '--';
+
+    // Proximity colour
+    box.classList.remove('warn', 'crit');
+    if (value > 0 && value < 15)  box.classList.add('crit');
+    else if (value > 0 && value < 28) box.classList.add('warn');
+
+    // Distance bar (max range 100 cm shown as 100%)
+    const pct = value > 0 ? Math.min(value / 100 * 100, 100) : 0;
+    bar.style.width = pct + '%';
+    bar.style.background = value > 0 && value < 15 ? '#f44' : value > 0 && value < 28 ? '#f90' : '#0af';
+  }
 
   function updateSensors() {
     fetch('/sensors').then(r => r.json()).then(d => {
-      document.getElementById('sF').textContent = d.F > 0 ? d.F : '--';
-      document.getElementById('sL').textContent = d.L > 0 ? d.L : '--';
-      document.getElementById('sB').textContent = d.B > 0 ? d.B : '--';
-      document.getElementById('sR').textContent = d.R > 0 ? d.R : '--';
+      updateSensor('boxF', 'barF', 'sF', d.F);
+      updateSensor('boxB', 'barB', 'sB', d.B);
+      updateSensor('boxL', 'barL', 'sL', d.L);
+      updateSensor('boxR', 'barR', 'sR', d.R);
+
+      // Line follower dots
       document.getElementById('lfL').classList.toggle('on', d.lfl === 1);
       document.getElementById('lfM').classList.toggle('on', d.lfm === 1);
       document.getElementById('lfR').classList.toggle('on', d.lfr === 1);
+
+      // Auto travel direction highlight
+      dirBox.forEach(id => document.getElementById(id).classList.remove('travel'));
+      if (d.mode === 1) document.getElementById(dirBox[d.dir]).classList.add('travel');
+
+      // Sync UV button if needed
+      if (d.uv !== uvState) { uvState = d.uv; applyUV(); }
     }).catch(() => {});
   }
   setInterval(updateSensors, 500);
@@ -536,7 +651,7 @@ void stopMotors() {
 }
 
 void setMotor(int ena, int pin1, int pin2, int s1, int s2, int speed) {
-  analogWrite(ena, speed);
+  analogWrite(ena, (speed * speedPct) / 100);
   digitalWrite(pin1, s1);
   digitalWrite(pin2, s2);
 }

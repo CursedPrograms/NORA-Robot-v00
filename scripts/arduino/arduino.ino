@@ -22,19 +22,26 @@ SoftwareSerial mySerial(8, 9);  // RX=8 (← ESP32 TX), TX=9 (→ ESP32 RX)
 #define R_ECHO A3
 
 // Line follower (left → right)
-#define LF_LEFT  4
-#define LF_MID   5
-#define LF_RIGHT 6
+#define LF_LEFT  3
+#define LF_MID   4
+#define LF_RIGHT 5
 
 // UV light
 #define UV_PIN 10
 
 // =====================
-// SETUP
+// UV STATE
 // =====================
+// 0 = off, 1 = on, 2 = blink
+int           uvMode      = 0;
+bool          uvBlink     = false;
+unsigned long lastUVBlink = 0;
 
 String cmdBuffer = "";
 
+// =====================
+// SETUP
+// =====================
 void setup() {
   mySerial.begin(9600);
 
@@ -54,9 +61,10 @@ void setup() {
 // =====================
 // LOOP
 // =====================
-
 void loop() {
-  // Read commands from ESP32 (UV control)
+  unsigned long now = millis();
+
+  // Read commands from ESP32
   while (mySerial.available()) {
     char c = mySerial.read();
     if (c == '\n') {
@@ -65,6 +73,13 @@ void loop() {
     } else if (c != '\r') {
       cmdBuffer += c;
     }
+  }
+
+  // UV blink (non-blocking)
+  if (uvMode == 2 && now - lastUVBlink >= 300) {
+    uvBlink = !uvBlink;
+    digitalWrite(UV_PIN, uvBlink ? HIGH : LOW);
+    lastUVBlink = now;
   }
 
   float front = readDistance(F_TRIG, F_ECHO); delay(50);
@@ -89,16 +104,21 @@ void loop() {
 // =====================
 // COMMAND HANDLER
 // =====================
-
 void handleCommand(String cmd) {
-  if      (cmd == "UV:1") digitalWrite(UV_PIN, HIGH);
-  else if (cmd == "UV:0") digitalWrite(UV_PIN, LOW);
+  if (cmd == "UV:0") {
+    uvMode = 0;
+    digitalWrite(UV_PIN, LOW);
+  } else if (cmd == "UV:1") {
+    uvMode = 1;
+    digitalWrite(UV_PIN, HIGH);
+  } else if (cmd == "UV:B") {
+    uvMode = 2;
+  }
 }
 
 // =====================
 // ULTRASONIC FUNCTION
 // =====================
-
 float readDistance(int trigPin, int echoPin) {
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);

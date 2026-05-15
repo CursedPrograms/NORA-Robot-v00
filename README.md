@@ -149,9 +149,9 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 #### Line Follower (left → right)
 | Sensor | Pin |
 | :--- | :--- |
-| **Left** | `D4` |
-| **Middle** | `D5` |
-| **Right** | `D6` |
+| **Left** | `D3` |
+| **Middle** | `D4` |
+| **Right** | `D5` |
 
 #### UV Light
 | Component | Pin |
