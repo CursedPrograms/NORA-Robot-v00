@@ -6,7 +6,7 @@
 // =====================
 const char* ap_ssid     = "NORA";
 const char* ap_password = "12345678";
-WebServer server(80);
+WebServer server(5002);
 
 // =====================
 // MOTOR PINS
@@ -28,6 +28,19 @@ WebServer server(80);
 #define M4_2 25
 
 bool autoMode = false;
+
+// =====================
+// AUTONOMOUS STATE
+// =====================
+#define DIR_FRONT  0
+#define DIR_RIGHT  1
+#define DIR_BACK   2
+#define DIR_LEFT   3
+
+enum AutoState { AUTO_COOLDOWN, AUTO_MOVING };
+AutoState     autoState    = AUTO_COOLDOWN;
+int           autoDir      = DIR_FRONT;
+unsigned long autoCooldown = 0;
 
 // =====================
 // SENSOR VALUES (from Arduino via hardware Serial RX pin)
@@ -65,7 +78,7 @@ void setup() {
   server.on("/turnR",   []() { if (!autoMode) turnRight();     server.send(200, "text/plain", "OK"); });
   server.on("/stop",    []() { if (!autoMode) stopMotors();    server.send(200, "text/plain", "OK"); });
   server.on("/autoOn",  []() { autoMode = true;                server.send(200, "text/plain", "OK"); });
-  server.on("/autoOff", []() { autoMode = false; stopMotors(); server.send(200, "text/plain", "OK"); });
+  server.on("/autoOff", []() { autoMode = false; stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; server.send(200, "text/plain", "OK"); });
 
   server.on("/sensors", []() {
     String json = "{\"F\":" + String(front_cm, 1) +
@@ -76,7 +89,7 @@ void setup() {
   });
 
   server.begin();
-  autoMode = true;
+  autoMode = false;
 }
 
 // =====================
@@ -126,14 +139,14 @@ void parseSensorLine(String line) {
 // =====================
 // AUTONOMOUS MODE
 // =====================
-// Direction indices
-#define DIR_FRONT  0
-#define DIR_RIGHT  1
-#define DIR_BACK   2
-#define DIR_LEFT   3
+// NORA is omnidirectional — no preferred forward direction.
+// All 4 sides are equal candidates. The robot picks the clearest
+// side and drives that way, re-evaluating only when blocked.
+// Non-blocking: uses millis() instead of delay() so the web server
+// stays responsive and movement is smooth.
 
 void moveDir(int dir) {
-  switch(dir) {
+  switch (dir) {
     case DIR_FRONT: moveForward();  break;
     case DIR_RIGHT: strafeRight();  break;
     case DIR_BACK:  moveBackward(); break;
@@ -141,76 +154,50 @@ void moveDir(int dir) {
   }
 }
 
+int clearestDir(float dist[4]) {
+  int best = 0;
+  for (int d = 1; d < 4; d++)
+    if (dist[d] > dist[best]) best = d;
+  return best;
+}
+
 void AutonomousMode(float front, float left, float back, float right) {
-  const float DANGER   = 25.0;  // start reacting
-  const float CRITICAL = 12.0;  // back up immediately
-  const float SAFE     = 40.0;  // comfortable open space
+  const float DANGER   = 28.0;
+  const float CRITICAL = 15.0;
 
-  // Helper: treat -1 (no reading) as wide open so we don't avoid phantom walls
-  auto safe = [](float v) { return (v < 0) ? 999.0 : v; };
+  auto safe = [](float v) -> float { return (v < 0) ? 999.0 : v; };
+  float dist[4] = { safe(front), safe(right), safe(back), safe(left) };
+  unsigned long now = millis();
 
-  float f = safe(front);
-  float l = safe(left);
-  float r = safe(right);
-  float b = safe(back);
-
-  // 1. Way too close — back up first if there's room behind
-  if (f < CRITICAL) {
-    stopMotors();
-    delay(150);
-    if (b > DANGER) {
-      moveBackward();
-      delay(400);
-      stopMotors();
-      delay(100);
-    }
-    // Then turn toward the more open side
-    if (l >= r) {
-      turnLeft();
-    } else {
-      turnRight();
-    }
-    delay(350);
-    stopMotors();
-    delay(100);
+  if (autoState == AUTO_COOLDOWN) {
+    if (now < autoCooldown) return;
+    int best = clearestDir(dist);
+    if (dist[best] < DANGER) { autoCooldown = now + 300; return; }  // boxed in, wait
+    autoDir = best;
+    moveDir(autoDir);
+    autoState = AUTO_MOVING;
     return;
   }
 
-  // 2. Getting close — strafe away from the nearer wall
-  if (f < DANGER) {
+  // AUTO_MOVING: watch the current travel direction only
+  float cur = dist[autoDir];
+  if (cur < CRITICAL) {
+    // Hard stop — too close
     stopMotors();
-    delay(100);
-    if (l >= r) {
-      strafeLeft();
-    } else {
-      strafeRight();
-    }
-    delay(300);
-    stopMotors();
-    delay(100);
-    return;
-  }
-
-  // 3. Path is clear — nudge toward centre of corridor if drifting
-  if (f > SAFE && l > 0 && r > 0) {
-    float diff = l - r;
-    if (diff > 15) {
-      // Drifted right, nudge left briefly
-      strafeLeft();
-      delay(120);
+    autoState = AUTO_COOLDOWN;
+    autoCooldown = now + 250;
+  } else if (cur < DANGER) {
+    // Getting close — switch to clearest available direction
+    int best = clearestDir(dist);
+    if (best != autoDir && dist[best] > DANGER) {
       stopMotors();
-      delay(50);
-    } else if (diff < -15) {
-      // Drifted left, nudge right briefly
-      strafeRight();
-      delay(120);
-      stopMotors();
-      delay(50);
+      autoDir = best;
+      moveDir(autoDir);
+      autoState = AUTO_COOLDOWN;
+      autoCooldown = now + 150;
     }
   }
-
-  // 4. All good — go forward
-  moveForward();
+  // else: path clear, motors already running — nothing to do
 }
 
 // =====================
