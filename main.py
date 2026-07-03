@@ -29,6 +29,7 @@ CONTROLS
 """
 
 import argparse
+import concurrent.futures
 import sys
 import threading
 import time
@@ -49,6 +50,10 @@ class WifiLink:
         self.ok = False
         self.data = {}
         self._lock = threading.Lock()
+        # commands fire every ~150ms while a key/button is held; a small
+        # pool avoids spawning a fresh OS thread for every single one
+        self._pool = concurrent.futures.ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="wifi-cmd")
         threading.Thread(target=self._poll, daemon=True).start()
 
     def _get(self, path):
@@ -57,6 +62,14 @@ class WifiLink:
             self.ok = True
         except Exception:
             self.ok = False
+
+    def get_json(self, path, timeout=1.5):
+        """Blocking GET returning parsed JSON, or None on failure."""
+        try:
+            r = self.requests.get(self.base + path, timeout=timeout)
+            return r.json()
+        except Exception:
+            return None
 
     def _poll(self):
         while True:
@@ -75,24 +88,24 @@ class WifiLink:
 
     # driving -----------------------------------------------------------
     def drive(self, action):   # 'fw' 'bw' 'left' 'right' 'turnL' 'turnR'
-        threading.Thread(target=self._get, args=("/" + action,), daemon=True).start()
+        self._pool.submit(self._get, "/" + action)
 
     def stop(self):
-        threading.Thread(target=self._get, args=("/stop",), daemon=True).start()
+        self._pool.submit(self._get, "/stop")
 
     # everything else ----------------------------------------------------
     def mode(self, m):         # 'Manual' 'Auto' 'Line'
-        threading.Thread(target=self._get, args=("/mode" + m,), daemon=True).start()
+        self._pool.submit(self._get, "/mode" + m)
 
     def uv(self, state):       # 0 1 2
         path = ["/uvOff", "/uvOn", "/uvBlink"][state]
-        threading.Thread(target=self._get, args=(path,), daemon=True).start()
+        self._pool.submit(self._get, path)
 
     def music(self, cmd):      # 'Play' 'Next' 'Prev' 'Stop'
-        threading.Thread(target=self._get, args=("/mu" + cmd,), daemon=True).start()
+        self._pool.submit(self._get, "/mu" + cmd)
 
     def speed(self, pct):
-        threading.Thread(target=self._get, args=(f"/setspeed?v={pct}",), daemon=True).start()
+        self._pool.submit(self._get, f"/setspeed?v={pct}")
 
 
 class BtLink:
@@ -107,11 +120,16 @@ class BtLink:
         self.ok = True
         self.data = {}
         self._lock = threading.Lock()
+        # guards the serial port itself: the poll thread and drive commands
+        # from the main thread both read/write it, and pyserial doesn't
+        # promise that's safe without serializing the calls
+        self._io_lock = threading.Lock()
         threading.Thread(target=self._poll, daemon=True).start()
 
     def _send(self, ch):
         try:
-            self.ser.write(ch.encode())
+            with self._io_lock:
+                self.ser.write(ch.encode())
             self.ok = True
         except Exception:
             self.ok = False
@@ -123,7 +141,9 @@ class BtLink:
             self._send("?")
             time.sleep(0.1)
             try:
-                buf += self.ser.read(256).decode(errors="ignore")
+                with self._io_lock:
+                    chunk = self.ser.read(256)
+                buf += chunk.decode(errors="ignore")
             except Exception:
                 self.ok = False
                 time.sleep(1)
@@ -134,7 +154,7 @@ class BtLink:
             time.sleep(0.6)
 
     def _parse(self, line):
-        # "F:12.0 L:33.0 B:-1.0 R:8.5 track:101 state:1 light:45% sound:no"
+        # "F:12.0 L:33.0 B:-1.0 R:8.5 mode:1 dir:0 lf:010 track:101 state:1 light:45% sound:no"
         if not line.startswith("F:"):
             return
         d = {}
@@ -142,13 +162,19 @@ class BtLink:
             if ":" not in tok:
                 continue
             k, v = tok.split(":", 1)
+            if k == "lf":
+                if len(v) == 3 and v.isdigit():
+                    d["lfl"], d["lfm"], d["lfr"] = int(v[0]), int(v[1]), int(v[2])
+                continue
+            if k == "sound":
+                d["snd"] = 1 if v == "yes" else 0
+                continue
             v = v.rstrip("%")
             try:
-                d[{"F": "F", "L": "L", "B": "B", "R": "R",
+                d[{"F": "F", "L": "L", "B": "B", "R": "R", "mode": "mode", "dir": "dir",
                    "track": "mt", "state": "ms", "light": "lt"}[k]] = float(v)
             except (KeyError, ValueError):
-                if k == "sound":
-                    d["snd"] = 1 if v == "yes" else 0
+                pass
         with self._lock:
             self.data.update(d)
 
@@ -172,7 +198,11 @@ class BtLink:
         self._send({"Play": "M", "Next": "N", "Prev": "P", "Stop": "X"}[cmd])
 
     def speed(self, pct):
-        pass  # BT protocol only nudges with +/-; slider is WiFi-only
+        pass  # BT protocol has no "set absolute speed" command; slider is WiFi-only
+
+    def nudge_speed(self, up):
+        """BT's only speed control: a single '+'/'-' step handled onboard."""
+        self._send("+" if up else "-")
 
 
 # ----------------------------------------------------------------------------
@@ -193,15 +223,22 @@ W, H = 420, 780
 
 
 class Button:
-    def __init__(self, rect, label, cb, font, active=False):
+    def __init__(self, rect, label, cb, font, active=False, enabled=True):
         self.rect = pygame.Rect(rect)
         self.label = label
         self.cb = cb
         self.font = font
         self.active = active
         self.pressed = False
+        self.enabled = enabled
 
     def draw(self, surf):
+        if not self.enabled:
+            pygame.draw.rect(surf, PANEL, self.rect, border_radius=8)
+            pygame.draw.rect(surf, (40, 40, 40), self.rect, 2, border_radius=8)
+            txt = self.font.render(self.label, True, (60, 60, 60))
+            surf.blit(txt, txt.get_rect(center=self.rect.center))
+            return
         color = ACCENT if (self.active or self.pressed) else BORDER
         bg = (0, 26, 42) if (self.active or self.pressed) else PANEL
         pygame.draw.rect(surf, bg, self.rect, border_radius=8)
@@ -214,14 +251,17 @@ class Button:
         return self.rect.collidepoint(pos)
 
 
-def sensor_bar(surf, font, x, y, w, label, value):
+def sensor_bar(surf, font, x, y, w, label, value, traveling=False):
     box = pygame.Rect(x, y, w, 46)
     color = BORDER
     if 0 < value < 15:
         color = CRIT
     elif 0 < value < 28:
         color = WARN
-    pygame.draw.rect(surf, PANEL, box, border_radius=8)
+    elif traveling:
+        color = ACCENT
+    bg = (0, 26, 42) if (traveling and color == ACCENT) else PANEL
+    pygame.draw.rect(surf, bg, box, border_radius=8)
     pygame.draw.rect(surf, color, box, 2, border_radius=8)
     txt = font.render(f"{label}  {value:.0f} cm" if value > 0 else f"{label}  --",
                       True, TEXT)
@@ -267,9 +307,11 @@ def connection_picker(screen, clock, f_big, f_med, f_sml, host, port, btport):
                 link = BtLink(fields["btport"])
                 return link, "BT " + fields["btport"]
         except ImportError:
-            error = "pyserial not installed:  pip install pyserial"
+            missing = "pyserial" if choice == "bt" else "requests"
+            error = f"{missing} not installed:  pip install {missing}"
         except Exception as e:
-            error = f"Bluetooth failed: {type(e).__name__}: {e}"[:60]
+            label = "Bluetooth" if choice == "bt" else "WiFi"
+            error = f"{label} failed: {type(e).__name__}: {e}"[:60]
         return None, None
 
     while True:
@@ -381,10 +423,21 @@ def main():
     f_sml = pygame.font.SysFont("dejavusans", 13)
 
     if args.bt:
-        link, transport = BtLink(args.bt), "BT " + args.bt
+        try:
+            link, transport = BtLink(args.bt), "BT " + args.bt
+        except ImportError:
+            print("pyserial not installed:  pip install pyserial", file=sys.stderr)
+            pygame.quit(); sys.exit(1)
+        except Exception as e:
+            print(f"Bluetooth connect failed: {type(e).__name__}: {e}", file=sys.stderr)
+            pygame.quit(); sys.exit(1)
     elif args.wifi:
-        link, transport = WifiLink(args.host, args.port), \
-                          f"WiFi {args.host}:{args.port}"
+        try:
+            link, transport = WifiLink(args.host, args.port), \
+                              f"WiFi {args.host}:{args.port}"
+        except ImportError:
+            print("requests not installed:  pip install requests", file=sys.stderr)
+            pygame.quit(); sys.exit(1)
     else:
         link, transport = connection_picker(screen, clock, f_big, f_med,
                                             f_sml, args.host, args.port,
@@ -393,16 +446,28 @@ def main():
             pygame.quit()
             sys.exit(0)
 
-    mode = "Manual"
+    # pull current mode/speed from the robot so the UI doesn't reset them
+    # to "Manual"/100% out from under whatever was already running
+    init_mode, init_speed = "Manual", 100
+    if isinstance(link, WifiLink):
+        cal = link.get_json("/getcal")
+        if cal and "spd" in cal:
+            init_speed = max(0, min(100, int(cal["spd"])))
+        sensors = link.get_json("/sensors")
+        mode_names = ["Manual", "Auto", "Line"]
+        if sensors and int(sensors.get("mode", 0)) in (0, 1, 2):
+            init_mode = mode_names[int(sensors["mode"])]
+
+    mode = init_mode
     uv_state = 0
-    speed = 100
+    speed = init_speed
     active_drive = None       # current held drive action
     last_repeat = 0
 
     buttons = []
 
-    def add(rect, label, cb, active=False):
-        b = Button(rect, label, cb, f_med, active)
+    def add(rect, label, cb, active=False, enabled=True):
+        b = Button(rect, label, cb, f_med, active, enabled)
         buttons.append(b)
         return b
 
@@ -413,11 +478,15 @@ def main():
         link.mode(m)
         for b, name in zip(mode_btns, ("Manual", "Auto", "Line")):
             b.active = (name == m)
+        is_manual = (m == "Manual")
+        for db in dpad_btns.values():
+            db.enabled = is_manual
+        stop_btn.enabled = is_manual
 
     mode_btns = [
-        add((20, 320, 120, 38), "MANUAL", lambda: set_mode("Manual"), True),
-        add((150, 320, 120, 38), "AUTO", lambda: set_mode("Auto")),
-        add((280, 320, 120, 38), "LINE", lambda: set_mode("Line")),
+        add((20, 320, 120, 38), "MANUAL", lambda: set_mode("Manual"), init_mode == "Manual"),
+        add((150, 320, 120, 38), "AUTO", lambda: set_mode("Auto"), init_mode == "Auto"),
+        add((280, 320, 120, 38), "LINE", lambda: set_mode("Line"), init_mode == "Line"),
     ]
 
     def cycle_uv():
@@ -459,9 +528,10 @@ def main():
     dpad_btns = {}
     for action, (bx, by), lbl in dpad_defs:
         dpad_btns[action] = add((bx, by, bs, bs), lbl,
-                                lambda a=action: start_drive(a))
+                                lambda a=action: start_drive(a),
+                                enabled=(init_mode == "Manual"))
     stop_btn = add((pad_cx - bs // 2, pad_cy - bs // 2, bs, bs), "STOP",
-                   lambda: link.stop())
+                   lambda: link.stop(), enabled=(init_mode == "Manual"))
 
     key_drive = {
         pygame.K_UP: "fw", pygame.K_DOWN: "bw",
@@ -471,6 +541,8 @@ def main():
 
     slider = pygame.Rect(70, 425, W - 140, 8)
     dragging_slider = False
+
+    is_bt = isinstance(link, BtLink)   # BT has no absolute-speed command; slider is WiFi-only
 
     def set_speed_from_mouse(mx):
         nonlocal speed
@@ -501,20 +573,22 @@ def main():
                 elif ev.key == pygame.K_p: link.music("Prev")
                 elif ev.key == pygame.K_x: link.music("Stop")
                 elif ev.key in (pygame.K_PLUS, pygame.K_EQUALS, pygame.K_KP_PLUS):
-                    speed = min(100, speed + 10); link.speed(speed)
+                    speed = min(100, speed + 10)
+                    link.nudge_speed(True) if is_bt else link.speed(speed)
                 elif ev.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
-                    speed = max(0, speed - 10); link.speed(speed)
+                    speed = max(0, speed - 10)
+                    link.nudge_speed(False) if is_bt else link.speed(speed)
 
             elif ev.type == pygame.KEYUP:
                 if ev.key in key_drive and active_drive == key_drive[ev.key]:
                     stop_drive()
 
             elif ev.type == pygame.MOUSEBUTTONDOWN:
-                if slider.inflate(0, 20).collidepoint(ev.pos):
+                if not is_bt and slider.inflate(0, 20).collidepoint(ev.pos):
                     dragging_slider = True
                     set_speed_from_mouse(ev.pos[0])
                 for b in buttons:
-                    if b.hit(ev.pos):
+                    if b.hit(ev.pos) and b.enabled:
                         b.pressed = True
                         b.cb()
 
@@ -522,10 +596,8 @@ def main():
                 dragging_slider = False
                 for b in buttons:
                     b.pressed = False
-                # releasing a dpad button = stop (like the website)
-                if active_drive and dpad_btns[active_drive].hit(ev.pos):
-                    stop_drive()
-                elif active_drive:
+                # releasing anywhere stops the held drive command (like the website)
+                if active_drive:
                     stop_drive()
 
             elif ev.type == pygame.MOUSEMOTION and dragging_slider:
@@ -546,11 +618,14 @@ def main():
                            True, GOOD if link.ok else CRIT)
         screen.blit(sub, sub.get_rect(centerx=W // 2, y=46))
 
+        # DIR_FRONT/RIGHT/BACK/LEFT = 0/1/2/3, reported in "dir" while mode==1 (Auto)
+        auto_dir = int(t["dir"]) if t.get("mode") == 1 and "dir" in t else -1
+
         colw = (W - 50) // 2
-        sensor_bar(screen, f_sml, 20, 75, colw, "Front", t.get("F", -1))
-        sensor_bar(screen, f_sml, 30 + colw, 75, colw, "Back", t.get("B", -1))
-        sensor_bar(screen, f_sml, 20, 130, colw, "Left", t.get("L", -1))
-        sensor_bar(screen, f_sml, 30 + colw, 130, colw, "Right", t.get("R", -1))
+        sensor_bar(screen, f_sml, 20, 75, colw, "Front", t.get("F", -1), auto_dir == 0)
+        sensor_bar(screen, f_sml, 30 + colw, 75, colw, "Back", t.get("B", -1), auto_dir == 2)
+        sensor_bar(screen, f_sml, 20, 130, colw, "Left", t.get("L", -1), auto_dir == 3)
+        sensor_bar(screen, f_sml, 30 + colw, 130, colw, "Right", t.get("R", -1), auto_dir == 1)
 
         # line follower + light + sound
         y = 195
@@ -577,15 +652,17 @@ def main():
         screen.blit(f_sml.render(f"MUSIC   track{mt:03d}", True, ACCENT), (20, 240))
         screen.blit(f_sml.render(state, True, col), (170, 240))
 
-        # speed
-        screen.blit(f_sml.render("Speed", True, DIM), (20, 418))
+        # speed (BT has no absolute-set command, only +/- nudges the firmware tracks itself)
+        speed_col = DIM if is_bt else ACCENT
+        screen.blit(f_sml.render("Speed (BT: +/- only)" if is_bt else "Speed", True, DIM),
+                   (20, 418))
         pygame.draw.rect(screen, (42, 42, 42), slider, border_radius=4)
-        pygame.draw.rect(screen, ACCENT,
+        pygame.draw.rect(screen, speed_col,
                          (slider.x, slider.y, int(slider.w * speed / 100), 8),
                          border_radius=4)
         knob_x = slider.x + int(slider.w * speed / 100)
-        pygame.draw.circle(screen, ACCENT, (knob_x, slider.y + 4), 9)
-        screen.blit(f_med.render(f"{speed}%", True, ACCENT), (W - 60, 415))
+        pygame.draw.circle(screen, speed_col, (knob_x, slider.y + 4), 9)
+        screen.blit(f_med.render(f"{speed}%", True, speed_col), (W - 60, 415))
 
         for b in buttons:
             b.draw(screen)
@@ -603,6 +680,8 @@ def main():
         clock.tick(60)
 
     stop_drive()
+    if is_bt:
+        link.ser.close()
     pygame.quit()
     sys.exit(0)
 

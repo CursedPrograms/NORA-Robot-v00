@@ -41,6 +41,18 @@ WebServer server(5002);
 #define M4_1 26
 #define M4_2 25
 
+// Forward declarations with default args (kept here only — the Arduino IDE
+// auto-generates prototypes from the definitions below, and a default
+// argument may only be specified once per translation unit).
+void moveForward(int scale = 100);
+void moveBackward(int scale = 100);
+void strafeLeft(int scale = 100);
+void strafeRight(int scale = 100);
+void turnLeft(int scale = 100);
+void turnRight(int scale = 100);
+void stopMotors();
+void setMotor(int ena, int pin1, int pin2, int s1, int s2, int speed, int scale = 100);
+
 // =====================
 // LINE FOLLOWER (on ESP32)
 // =====================
@@ -92,6 +104,22 @@ enum AutoState { AUTO_COOLDOWN, AUTO_MOVING };
 AutoState     autoState    = AUTO_COOLDOWN;
 int           autoDir      = DIR_FRONT;
 unsigned long autoCooldown = 0;
+
+// boxed-in tracking for AutonomousMode() — global (not function-static) so
+// entering Auto mode can reset it; otherwise a stale timestamp from a past
+// stuck episode could fire an escape turn immediately on re-entry
+unsigned long autoStuckSinceMs  = 0;
+bool          autoEscaping      = false;
+unsigned long autoEscapeUntilMs = 0;
+
+// =====================
+// LINE FOLLOWER STATE
+// =====================
+// global (not function-static) so entering Line mode can reset it —
+// otherwise a stale "lost the line" timestamp from a past run could fire
+// an immediate stop on re-entry instead of the intended grace period
+int           lineLastTurn    = 1;
+unsigned long lineLostSinceMs = 0;
 
 // =====================
 // SENSOR VALUES
@@ -156,8 +184,8 @@ void setup() {
 
   // Mode switching
   server.on("/modeManual", []() { driveMode = MODE_MANUAL; stopMotors(); server.send(200, "text/plain", "OK"); });
-  server.on("/modeAuto",   []() { driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; server.send(200, "text/plain", "OK"); });
-  server.on("/modeLine",   []() { driveMode = MODE_LINE;   stopMotors(); server.send(200, "text/plain", "OK"); });
+  server.on("/modeAuto",   []() { driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; autoStuckSinceMs = 0; autoEscaping = false; server.send(200, "text/plain", "OK"); });
+  server.on("/modeLine",   []() { driveMode = MODE_LINE;   stopMotors(); lineLostSinceMs = 0; server.send(200, "text/plain", "OK"); });
 
   // UV
   server.on("/uvOff",   []() { uvMode = 0; server.send(200, "text/plain", "OK"); });
@@ -300,8 +328,8 @@ void handleBluetooth() {
 
       // ---- modes ----
       case '1': driveMode = MODE_MANUAL; stopMotors(); SerialBT.println("mode: manual"); break;
-      case '2': driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; SerialBT.println("mode: auto"); break;
-      case '3': driveMode = MODE_LINE;   stopMotors(); SerialBT.println("mode: line"); break;
+      case '2': driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; autoStuckSinceMs = 0; autoEscaping = false; SerialBT.println("mode: auto"); break;
+      case '3': driveMode = MODE_LINE;   stopMotors(); lineLostSinceMs = 0; SerialBT.println("mode: line"); break;
 
       // ---- UV ----
       case 'U': case 'u':
@@ -317,10 +345,13 @@ void handleBluetooth() {
 
       // ---- status query ----
       case '?':
-        SerialBT.print("F:");  SerialBT.print(front_cm);
-        SerialBT.print(" L:"); SerialBT.print(left_cm);
-        SerialBT.print(" B:"); SerialBT.print(back_cm);
-        SerialBT.print(" R:"); SerialBT.print(right_cm);
+        SerialBT.print("F:");    SerialBT.print(front_cm);
+        SerialBT.print(" L:");   SerialBT.print(left_cm);
+        SerialBT.print(" B:");   SerialBT.print(back_cm);
+        SerialBT.print(" R:");   SerialBT.print(right_cm);
+        SerialBT.print(" mode:"); SerialBT.print((int)driveMode);
+        SerialBT.print(" dir:");  SerialBT.print(autoDir);
+        SerialBT.print(" lf:");   SerialBT.print(lf_l); SerialBT.print(lf_m); SerialBT.print(lf_r);
         SerialBT.print(" track:"); SerialBT.print(musicTrack);
         SerialBT.print(" state:"); SerialBT.print(musicState);
         SerialBT.print(" light:"); SerialBT.print(lightPct);
@@ -373,18 +404,38 @@ void parseSensorLine(String line) {
 // =====================
 // LINE FOLLOWER MODE
 // =====================
+// Same shape of fix as AutonomousMode(): gentler turns instead of full-speed
+// pivots (less zigzag along the line), and a fail-safe stop instead of
+// spinning in place forever once the line is genuinely lost.
 void LineFollowerMode(int l, int m, int r) {
-  static int lastTurn = 1;
+  const int           TURN_SCALE = 65;    // gentler than a full-speed pivot
+  const unsigned long LOST_MS    = 1000;  // give up and stop after this long off-line
+
   int pattern = (l << 2) | (m << 1) | r;
   switch (pattern) {
     case 0b010:
-    case 0b111: moveForward();              break;
-    case 0b110: lastTurn = -1; turnLeft();  break;
-    case 0b100: lastTurn = -1; turnLeft();  break;
-    case 0b011: lastTurn =  1; turnRight(); break;
-    case 0b001: lastTurn =  1; turnRight(); break;
+    case 0b111:
+    case 0b101:   // both outer sensors on line, middle off — wide line/intersection, keep going
+      lineLostSinceMs = 0;
+      moveForward();
+      break;
+    case 0b110:
+    case 0b100:
+      lineLastTurn    = -1;
+      lineLostSinceMs = 0;
+      turnLeft(TURN_SCALE);
+      break;
+    case 0b011:
+    case 0b001:
+      lineLastTurn    = 1;
+      lineLostSinceMs = 0;
+      turnRight(TURN_SCALE);
+      break;
     case 0b000:
-      if (lastTurn < 0) turnLeft(); else turnRight();
+      if (lineLostSinceMs == 0) lineLostSinceMs = millis();
+      if (millis() - lineLostSinceMs > LOST_MS) stopMotors();
+      else if (lineLastTurn < 0)                turnLeft(TURN_SCALE);
+      else                                       turnRight(TURN_SCALE);
       break;
     default: moveForward(); break;
   }
@@ -393,12 +444,12 @@ void LineFollowerMode(int l, int m, int r) {
 // =====================
 // AUTONOMOUS MODE
 // =====================
-void moveDir(int dir) {
+void moveDir(int dir, int scale) {
   switch (dir) {
-    case DIR_FRONT: moveForward();  break;
-    case DIR_RIGHT: strafeRight();  break;
-    case DIR_BACK:  moveBackward(); break;
-    case DIR_LEFT:  strafeLeft();   break;
+    case DIR_FRONT: moveForward(scale);  break;
+    case DIR_RIGHT: strafeRight(scale);  break;
+    case DIR_BACK:  moveBackward(scale); break;
+    case DIR_LEFT:  strafeLeft(scale);   break;
   }
 }
 
@@ -409,38 +460,97 @@ int clearestDir(float dist[4]) {
   return best;
 }
 
+// Reactive omnidirectional avoidance. Beyond the original bang-bang
+// controller, this adds:
+//   - EMA smoothing per sensor so single noisy pings don't flip decisions
+//   - cautious (not "infinite") handling of dropped/out-of-range readings,
+//     since a failed echo can mean "too close" just as easily as "clear"
+//   - a switch hysteresis margin so it won't flap between two directions
+//     that read almost the same distance
+//   - a slow-down band instead of full speed all the way to CRITICAL
+//   - an escape turn when genuinely boxed in, instead of freezing forever
 void AutonomousMode(float front, float left, float back, float right) {
-  const float DANGER   = 28.0;
-  const float CRITICAL = 15.0;
+  const float DANGER        = 28.0;
+  const float CRITICAL      = 15.0;
+  const float SWITCH_MARGIN = 8.0;   // new dir must clear the old one by this much
+  const float UNKNOWN_CM    = 40.0;  // cautious guess once a sensor goes stale
+  const int   CREEP_SCALE   = 55;    // % speed while inside the DANGER band
+  const unsigned long STALE_MS  = 800;
+  const unsigned long STUCK_MS  = 1200;
+  const unsigned long ESCAPE_MS = 400;
 
-  auto safe = [](float v) -> float { return (v < 0) ? 999.0 : v; };
-  float dist[4] = { safe(front), safe(right), safe(back), safe(left) };
   unsigned long now = millis();
+
+  // ---- per-sensor smoothing with cautious dropout handling ----
+  static float filtered[4]           = {UNKNOWN_CM, UNKNOWN_CM, UNKNOWN_CM, UNKNOWN_CM};
+  static unsigned long lastGoodMs[4] = {0, 0, 0, 0};
+  float raw[4] = { front, right, back, left };   // matches DIR_FRONT/RIGHT/BACK/LEFT
+
+  for (int d = 0; d < 4; d++) {
+    if (raw[d] > 0) {
+      filtered[d] = (lastGoodMs[d] == 0) ? raw[d] : (filtered[d] * 0.5 + raw[d] * 0.5);
+      lastGoodMs[d] = now;
+    } else if (now - lastGoodMs[d] > STALE_MS) {
+      // no valid echo in a while: could be "clear" or could be "too close to
+      // hear the echo" — assume neither, treat it as merely borderline
+      filtered[d] = UNKNOWN_CM;
+    }
+    // else: a brief dropout — keep trusting the last smoothed value
+  }
+  float dist[4] = { filtered[0], filtered[1], filtered[2], filtered[3] };
+
+  // ---- boxed-in escape: turn toward the more open side instead of freezing ----
+  if (autoEscaping) {
+    if (now < autoEscapeUntilMs) return;
+    autoEscaping = false;
+    stopMotors();
+    autoState       = AUTO_COOLDOWN;
+    autoCooldown    = now + 150;
+    autoStuckSinceMs = 0;
+    return;
+  }
 
   if (autoState == AUTO_COOLDOWN) {
     if (now < autoCooldown) return;
     int best = clearestDir(dist);
-    if (dist[best] < DANGER) { autoCooldown = now + 300; return; }
+    if (dist[best] < DANGER) {
+      if (autoStuckSinceMs == 0) autoStuckSinceMs = now;
+      if (now - autoStuckSinceMs > STUCK_MS) {
+        if (dist[DIR_LEFT] >= dist[DIR_RIGHT]) turnLeft(CREEP_SCALE);
+        else                                   turnRight(CREEP_SCALE);
+        autoEscaping      = true;
+        autoEscapeUntilMs = now + ESCAPE_MS;
+        return;
+      }
+      autoCooldown = now + 300;
+      return;
+    }
+    autoStuckSinceMs = 0;
     autoDir = best;
-    moveDir(autoDir);
+    moveDir(autoDir, 100);
     autoState = AUTO_MOVING;
     return;
   }
 
+  // AUTO_MOVING
   float cur = dist[autoDir];
   if (cur < CRITICAL) {
     stopMotors();
-    autoState = AUTO_COOLDOWN;
+    autoState    = AUTO_COOLDOWN;
     autoCooldown = now + 250;
   } else if (cur < DANGER) {
     int best = clearestDir(dist);
-    if (best != autoDir && dist[best] > DANGER) {
+    if (best != autoDir && dist[best] > dist[autoDir] + SWITCH_MARGIN && dist[best] > DANGER) {
       stopMotors();
       autoDir = best;
-      moveDir(autoDir);
-      autoState = AUTO_COOLDOWN;
+      moveDir(autoDir, 100);
+      autoState    = AUTO_COOLDOWN;
       autoCooldown = now + 150;
+    } else {
+      moveDir(autoDir, CREEP_SCALE);   // getting close — creep instead of full speed
     }
+  } else {
+    moveDir(autoDir, 100);             // clear again — resume full speed
   }
 }
 
@@ -817,12 +927,12 @@ void handleRoot() {
 // =====================
 // MOVEMENT FUNCTIONS
 // =====================
-void moveForward()  { setMotor(ENA1,M1_1,M1_2,LOW,HIGH,cal[0]);  setMotor(ENA2,M2_1,M2_2,LOW,HIGH,cal[1]);  setMotor(ENB1,M3_1,M3_2,HIGH,LOW,cal[2]); setMotor(ENB2,M4_1,M4_2,HIGH,LOW,cal[3]); }
-void moveBackward() { setMotor(ENA1,M1_1,M1_2,HIGH,LOW,cal[0]);  setMotor(ENA2,M2_1,M2_2,HIGH,LOW,cal[1]);  setMotor(ENB1,M3_1,M3_2,LOW,HIGH,cal[2]); setMotor(ENB2,M4_1,M4_2,LOW,HIGH,cal[3]); }
-void strafeLeft()   { setMotor(ENA1,M1_1,M1_2,HIGH,LOW,cal[0]);  setMotor(ENA2,M2_1,M2_2,LOW,HIGH,cal[1]);  setMotor(ENB1,M3_1,M3_2,HIGH,LOW,cal[2]); setMotor(ENB2,M4_1,M4_2,LOW,HIGH,cal[3]); }
-void strafeRight()  { setMotor(ENA1,M1_1,M1_2,LOW,HIGH,cal[0]);  setMotor(ENA2,M2_1,M2_2,HIGH,LOW,cal[1]);  setMotor(ENB1,M3_1,M3_2,LOW,HIGH,cal[2]); setMotor(ENB2,M4_1,M4_2,HIGH,LOW,cal[3]); }
-void turnLeft()     { setMotor(ENA1,M1_1,M1_2,HIGH,LOW,cal[0]);  setMotor(ENA2,M2_1,M2_2,LOW,HIGH,cal[1]);  setMotor(ENB1,M3_1,M3_2,LOW,HIGH,cal[2]); setMotor(ENB2,M4_1,M4_2,HIGH,LOW,cal[3]); }
-void turnRight()    { setMotor(ENA1,M1_1,M1_2,LOW,HIGH,cal[0]);  setMotor(ENA2,M2_1,M2_2,HIGH,LOW,cal[1]);  setMotor(ENB1,M3_1,M3_2,HIGH,LOW,cal[2]); setMotor(ENB2,M4_1,M4_2,LOW,HIGH,cal[3]); }
+void moveForward(int scale)  { setMotor(ENA1,M1_1,M1_2,LOW,HIGH,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,LOW,HIGH,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,HIGH,LOW,cal[2],scale); setMotor(ENB2,M4_1,M4_2,HIGH,LOW,cal[3],scale); }
+void moveBackward(int scale) { setMotor(ENA1,M1_1,M1_2,HIGH,LOW,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,HIGH,LOW,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,LOW,HIGH,cal[2],scale); setMotor(ENB2,M4_1,M4_2,LOW,HIGH,cal[3],scale); }
+void strafeLeft(int scale)   { setMotor(ENA1,M1_1,M1_2,HIGH,LOW,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,LOW,HIGH,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,HIGH,LOW,cal[2],scale); setMotor(ENB2,M4_1,M4_2,LOW,HIGH,cal[3],scale); }
+void strafeRight(int scale)  { setMotor(ENA1,M1_1,M1_2,LOW,HIGH,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,HIGH,LOW,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,LOW,HIGH,cal[2],scale); setMotor(ENB2,M4_1,M4_2,HIGH,LOW,cal[3],scale); }
+void turnLeft(int scale)     { setMotor(ENA1,M1_1,M1_2,HIGH,LOW,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,LOW,HIGH,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,LOW,HIGH,cal[2],scale); setMotor(ENB2,M4_1,M4_2,HIGH,LOW,cal[3],scale); }
+void turnRight(int scale)    { setMotor(ENA1,M1_1,M1_2,LOW,HIGH,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,HIGH,LOW,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,HIGH,LOW,cal[2],scale); setMotor(ENB2,M4_1,M4_2,LOW,HIGH,cal[3],scale); }
 
 void stopMotors() {
   analogWrite(ENA1, 0); digitalWrite(M1_1, LOW); digitalWrite(M1_2, LOW);
@@ -831,8 +941,8 @@ void stopMotors() {
   analogWrite(ENB2, 0); digitalWrite(M4_1, LOW); digitalWrite(M4_2, LOW);
 }
 
-void setMotor(int ena, int pin1, int pin2, int s1, int s2, int speed) {
-  analogWrite(ena, (speed * speedPct) / 100);
+void setMotor(int ena, int pin1, int pin2, int s1, int s2, int speed, int scale) {
+  analogWrite(ena, (speed * speedPct * scale) / 10000);
   digitalWrite(pin1, s1);
   digitalWrite(pin2, s2);
 }
