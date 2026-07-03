@@ -1,6 +1,19 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Preferences.h>
+#include "BluetoothSerial.h"
+
+// =====================
+// BLUETOOTH
+// =====================
+// Pair with "NORA" from your phone, then use any Bluetooth serial /
+// RC controller app. Single-character commands:
+//   F=forward  B=backward  L=strafe left  R=strafe right
+//   Q=turn left  E=turn right  S=stop
+//   1=manual mode  2=auto mode  3=line mode
+//   U=cycle UV     M=music play/pause  N=next track  P=prev track  X=music stop
+//   +=speed up  -=speed down  ?=print sensor + music status
+BluetoothSerial SerialBT;
 
 // =====================
 // WIFI
@@ -29,6 +42,32 @@ WebServer server(5002);
 #define M4_2 25
 
 // =====================
+// LINE FOLLOWER (on ESP32)
+// =====================
+#define LF_LEFT  34
+#define LF_MID   35
+#define LF_RIGHT 39
+
+// =====================
+// UV LIGHT (on ESP32)
+// =====================
+#define UV_PIN 4
+
+// =====================
+// LIGHT + SOUND SENSORS (on ESP32)
+// =====================
+// Photoresistor: 3.3V -> LDR -> GPIO36 -> 10k resistor -> GND
+// Sound board:   VCC to 3.3V (NOT 5V!), DO -> GPIO33
+#define LDR_PIN   36   // input-only, ADC1 (works with WiFi on)
+#define SOUND_PIN 33
+
+int  lightPct        = 0;      // 0 = dark, 100 = bright
+bool soundRecent     = false;  // true if a sound was heard in the last 500ms
+unsigned long lastSoundMs   = 0;
+unsigned long firstClapMs   = 0;
+int  clapCount       = 0;
+
+// =====================
 // DRIVE MODE
 // =====================
 enum DriveMode { MODE_MANUAL, MODE_AUTO, MODE_LINE };
@@ -37,8 +76,8 @@ DriveMode driveMode = MODE_MANUAL;
 // =====================
 // CALIBRATION & SPEED
 // =====================
-int cal[4]   = {255, 255, 255, 255};  // per-motor PWM (0-255)
-int speedPct = 100;                   // global speed (0-100%)
+int cal[4]   = {255, 255, 255, 255};
+int speedPct = 100;
 Preferences prefs;
 
 // =====================
@@ -62,17 +101,23 @@ int   lf_l = 0, lf_m = 0, lf_r = 0;
 String serialBuffer = "";
 
 // =====================
-// UV
+// MUSIC STATE (reported by Arduino)
 // =====================
-// 0=off  1=on  2=blink
-int           uvMode     = 0;
-unsigned long lastUVSend = 0;
+int musicTrack = 100;   // current track number
+int musicState = 0;     // 0=stopped 1=playing 2=paused
+
+// =====================
+// UV STATE
+// =====================
+int           uvMode       = 0;   // 0=off 1=on 2=blink
+bool          uvBlinkState = false;
+unsigned long lastUVBlink  = 0;
 
 // =====================
 // SETUP
 // =====================
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(9600);   // link to Arduino (sensors in, music commands out)
 
   prefs.begin("cal", true);
   cal[0]   = prefs.getInt("m1",  255);
@@ -83,11 +128,22 @@ void setup() {
   prefs.end();
 
   WiFi.softAP(ap_ssid, ap_password);
+  SerialBT.begin("NORA");   // Bluetooth device name shown when pairing
 
   pinMode(ENA1, OUTPUT); pinMode(M1_1, OUTPUT); pinMode(M1_2, OUTPUT);
   pinMode(ENA2, OUTPUT); pinMode(M2_1, OUTPUT); pinMode(M2_2, OUTPUT);
   pinMode(ENB1, OUTPUT); pinMode(M3_1, OUTPUT); pinMode(M3_2, OUTPUT);
   pinMode(ENB2, OUTPUT); pinMode(M4_1, OUTPUT); pinMode(M4_2, OUTPUT);
+
+  pinMode(LF_LEFT,  INPUT);
+  pinMode(LF_MID,   INPUT);
+  pinMode(LF_RIGHT, INPUT);
+
+  pinMode(UV_PIN, OUTPUT);
+  digitalWrite(UV_PIN, LOW);
+
+  pinMode(SOUND_PIN, INPUT);
+  // LDR_PIN (36) is input-only; analogRead needs no pinMode
 
   // Manual movement
   server.on("/fw",    []() { if (driveMode == MODE_MANUAL) moveForward();  server.send(200, "text/plain", "OK"); });
@@ -103,10 +159,16 @@ void setup() {
   server.on("/modeAuto",   []() { driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; server.send(200, "text/plain", "OK"); });
   server.on("/modeLine",   []() { driveMode = MODE_LINE;   stopMotors(); server.send(200, "text/plain", "OK"); });
 
-  // UV — 0=off 1=on 2=blink
+  // UV
   server.on("/uvOff",   []() { uvMode = 0; server.send(200, "text/plain", "OK"); });
   server.on("/uvOn",    []() { uvMode = 1; server.send(200, "text/plain", "OK"); });
   server.on("/uvBlink", []() { uvMode = 2; server.send(200, "text/plain", "OK"); });
+
+  // Music player -> forwarded to Arduino over serial
+  server.on("/muPlay", []() { Serial.println("M:PLAY"); server.send(200, "text/plain", "OK"); });
+  server.on("/muNext", []() { Serial.println("M:NEXT"); server.send(200, "text/plain", "OK"); });
+  server.on("/muPrev", []() { Serial.println("M:PREV"); server.send(200, "text/plain", "OK"); });
+  server.on("/muStop", []() { Serial.println("M:STOP"); server.send(200, "text/plain", "OK"); });
 
   // Calibration
   server.on("/setcal", []() {
@@ -147,7 +209,11 @@ void setup() {
                   ",\"lfr\":"  + String(lf_r)        +
                   ",\"mode\":" + String((int)driveMode) +
                   ",\"dir\":"  + String(autoDir)     +
-                  ",\"uv\":"   + String(uvMode)      + "}";
+                  ",\"uv\":"   + String(uvMode)      +
+                  ",\"mt\":"   + String(musicTrack)  +
+                  ",\"ms\":"   + String(musicState)  +
+                  ",\"lt\":"   + String(lightPct)    +
+                  ",\"snd\":"  + String(soundRecent ? 1 : 0) + "}";
     server.send(200, "application/json", json);
   });
 
@@ -160,19 +226,112 @@ void setup() {
 // =====================
 void loop() {
   server.handleClient();
+  handleBluetooth();
   readSerialSensors();
 
-  // Broadcast UV state to Arduino every 500ms
+  lf_l = digitalRead(LF_LEFT);
+  lf_m = digitalRead(LF_MID);
+  lf_r = digitalRead(LF_RIGHT);
+
   unsigned long now = millis();
-  if (now - lastUVSend >= 500) {
-    if      (uvMode == 0) Serial.println("UV:0");
-    else if (uvMode == 1) Serial.println("UV:1");
-    else                  Serial.println("UV:B");
-    lastUVSend = now;
+
+  // ---- Light level (smoothed) ----
+  static unsigned long lastLdrMs = 0;
+  if (now - lastLdrMs >= 200) {
+    int raw = analogRead(LDR_PIN);              // 0-4095
+    int pct = map(raw, 0, 4095, 0, 100);
+    lightPct = (lightPct * 3 + pct) / 4;        // simple smoothing
+    lastLdrMs = now;
+  }
+
+  // ---- Sound detection + double-clap toggles UV ----
+  // Most cheap boards pulse HIGH on sound; if yours idles HIGH and
+  // pulses LOW, flip the comparison below to == LOW.
+  static bool lastSoundLevel = false;
+  bool soundLevel = (digitalRead(SOUND_PIN) == HIGH);
+  if (soundLevel && !lastSoundLevel && now - lastSoundMs > 120) {  // rising edge, debounced
+    lastSoundMs = now;
+
+    if (clapCount == 0 || now - firstClapMs > 800) {
+      clapCount = 1;
+      firstClapMs = now;
+    } else {
+      clapCount++;
+    }
+    if (clapCount >= 2) {           // double clap within 0.8s
+      uvMode = (uvMode == 0) ? 1 : 0;
+      clapCount = 0;
+    }
+  }
+  lastSoundLevel = soundLevel;
+  soundRecent = (now - lastSoundMs) < 500;
+
+  if (uvMode == 0) {
+    digitalWrite(UV_PIN, LOW);
+  } else if (uvMode == 1) {
+    digitalWrite(UV_PIN, HIGH);
+  } else if (now - lastUVBlink >= 300) {
+    uvBlinkState = !uvBlinkState;
+    digitalWrite(UV_PIN, uvBlinkState ? HIGH : LOW);
+    lastUVBlink = now;
   }
 
   if      (driveMode == MODE_AUTO) AutonomousMode(front_cm, left_cm, back_cm, right_cm);
   else if (driveMode == MODE_LINE) LineFollowerMode(lf_l, lf_m, lf_r);
+}
+
+// =====================
+// BLUETOOTH COMMANDS
+// =====================
+void handleBluetooth() {
+  while (SerialBT.available()) {
+    char c = SerialBT.read();
+    if (c == '\n' || c == '\r' || c == ' ') continue;
+
+    switch (c) {
+      // ---- driving (manual mode only, same rule as the web pad) ----
+      case 'F': case 'f': if (driveMode == MODE_MANUAL) moveForward();  break;
+      case 'B': case 'b': if (driveMode == MODE_MANUAL) moveBackward(); break;
+      case 'L': case 'l': if (driveMode == MODE_MANUAL) strafeLeft();   break;
+      case 'R': case 'r': if (driveMode == MODE_MANUAL) strafeRight();  break;
+      case 'Q': case 'q': if (driveMode == MODE_MANUAL) turnLeft();     break;
+      case 'E': case 'e': if (driveMode == MODE_MANUAL) turnRight();    break;
+      case 'S': case 's': if (driveMode == MODE_MANUAL) stopMotors();   break;
+
+      // ---- modes ----
+      case '1': driveMode = MODE_MANUAL; stopMotors(); SerialBT.println("mode: manual"); break;
+      case '2': driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; SerialBT.println("mode: auto"); break;
+      case '3': driveMode = MODE_LINE;   stopMotors(); SerialBT.println("mode: line"); break;
+
+      // ---- UV ----
+      case 'U': case 'u':
+        uvMode = (uvMode + 1) % 3;
+        SerialBT.println(uvMode == 0 ? "uv: off" : uvMode == 1 ? "uv: on" : "uv: blink");
+        break;
+
+      // ---- music (forwarded to the Arduino) ----
+      case 'M': case 'm': Serial.println("M:PLAY"); break;
+      case 'N': case 'n': Serial.println("M:NEXT"); break;
+      case 'P': case 'p': Serial.println("M:PREV"); break;
+      case 'X': case 'x': Serial.println("M:STOP"); break;
+
+      // ---- status query ----
+      case '?':
+        SerialBT.print("F:");  SerialBT.print(front_cm);
+        SerialBT.print(" L:"); SerialBT.print(left_cm);
+        SerialBT.print(" B:"); SerialBT.print(back_cm);
+        SerialBT.print(" R:"); SerialBT.print(right_cm);
+        SerialBT.print(" track:"); SerialBT.print(musicTrack);
+        SerialBT.print(" state:"); SerialBT.print(musicState);
+        SerialBT.print(" light:"); SerialBT.print(lightPct);
+        SerialBT.print("% sound:"); SerialBT.println(soundRecent ? "yes" : "no");
+        break;
+
+      // ---- speed nudge ----
+      case '+': speedPct = constrain(speedPct + 10, 10, 100); SerialBT.print("speed: "); SerialBT.println(speedPct); break;
+      case '-': speedPct = constrain(speedPct - 10, 10, 100); SerialBT.print("speed: "); SerialBT.println(speedPct); break;
+    }
+  }
 }
 
 // =====================
@@ -205,21 +364,17 @@ void parseSensorLine(String line) {
   back_cm  = extractFloat("B");
   right_cm = extractFloat("R");
 
-  int lfIdx = line.indexOf("LF:");
-  if (lfIdx != -1 && (lfIdx + 5) < (int)line.length()) {
-    lf_l = line[lfIdx + 3] - '0';
-    lf_m = line[lfIdx + 4] - '0';
-    lf_r = line[lfIdx + 5] - '0';
-  }
+  float mt = extractFloat("MT");
+  float ms = extractFloat("MS");
+  if (mt >= 0) musicTrack = (int)mt;
+  if (ms >= 0) musicState = (int)ms;
 }
 
 // =====================
 // LINE FOLLOWER MODE
 // =====================
-// Remembers last turn direction to spin-search when the line is lost.
-
 void LineFollowerMode(int l, int m, int r) {
-  static int lastTurn = 1;  // 1=right, -1=left
+  static int lastTurn = 1;
   int pattern = (l << 2) | (m << 1) | r;
   switch (pattern) {
     case 0b010:
@@ -229,7 +384,6 @@ void LineFollowerMode(int l, int m, int r) {
     case 0b011: lastTurn =  1; turnRight(); break;
     case 0b001: lastTurn =  1; turnRight(); break;
     case 0b000:
-      // Lost line — spin in last known direction to find it again
       if (lastTurn < 0) turnLeft(); else turnRight();
       break;
     default: moveForward(); break;
@@ -291,10 +445,9 @@ void AutonomousMode(float front, float left, float back, float right) {
 }
 
 // =====================
-// WEB PAGE
+// WEB PAGE (stored in flash, not RAM)
 // =====================
-void handleRoot() {
-  String page = R"rawhtml(
+static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 <!DOCTYPE html>
 <html>
 <head>
@@ -311,7 +464,6 @@ void handleRoot() {
     h1 { font-size: 1.6rem; letter-spacing: 3px; color: #0af; }
     h2 { font-size: 0.8rem; color: #555; letter-spacing: 1px; }
 
-    /* Sensors */
     #sensors { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; max-width: 340px; }
     .sensor-box {
       background: #1e1e1e; border: 2px solid #333; border-radius: 8px;
@@ -327,7 +479,6 @@ void handleRoot() {
     .dist-bar-bg { background: #2a2a2a; border-radius: 3px; height: 4px; overflow: hidden; }
     .dist-bar    { height: 4px; border-radius: 3px; background: #0af; transition: width 0.3s, background 0.3s; width: 0%; }
 
-    /* Line follower dots */
     #lfRow { display: flex; gap: 8px; align-items: center; font-size: 0.8rem; color: #666; }
     .lf-dot {
       width: 20px; height: 20px; border-radius: 50%;
@@ -335,7 +486,6 @@ void handleRoot() {
     }
     .lf-dot.on { background: #0af; border-color: #0af; }
 
-    /* Mode buttons */
     #modeRow { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
     .mode-btn {
       padding: 10px 18px; border: 2px solid #333; border-radius: 8px;
@@ -344,7 +494,6 @@ void handleRoot() {
     }
     .mode-btn.active { border-color: #0af; color: #0af; background: #001a2a; }
 
-    /* UV button */
     #uvBtn {
       padding: 9px 20px; border: 2px solid #444; border-radius: 8px;
       font-size: 0.85rem; font-weight: bold; cursor: pointer;
@@ -353,7 +502,26 @@ void handleRoot() {
     #uvBtn.on    { border-color: #bb0; color: #ff0; background: #1a1900; }
     #uvBtn.blink { border-color: #f80; color: #f80; background: #1a1000; }
 
-    /* Speed row */
+    /* Music player */
+    #musicPanel {
+      width: 100%; max-width: 340px;
+      background: #1a1a1a; border: 1px solid #333; border-radius: 10px;
+      padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
+    }
+    #musicTop { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #666; }
+    #musicTrack { color: #0af; font-weight: bold; }
+    #musicState { color: #888; }
+    #musicState.playing { color: #0f8; }
+    #musicState.paused  { color: #f90; }
+    #musicBtns { display: flex; gap: 8px; justify-content: center; }
+    .mu-btn {
+      flex: 1; padding: 10px 0; border: 2px solid #333; border-radius: 8px;
+      background: #1e1e1e; color: #ccc; font-size: 1rem; cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .mu-btn:active { border-color: #0af; color: #0af; }
+    .mu-btn.stopBtn { color: #f55; }
+
     #speedRow {
       display: flex; align-items: center; gap: 10px;
       width: 100%; max-width: 340px; font-size: 0.85rem; color: #aaa;
@@ -361,7 +529,6 @@ void handleRoot() {
     #speedRow input[type=range] { flex: 1; accent-color: #0af; }
     #speedVal { width: 36px; text-align: right; color: #0af; font-weight: bold; }
 
-    /* D-pad */
     .dpad {
       display: grid;
       grid-template-columns: repeat(3, 80px);
@@ -388,7 +555,6 @@ void handleRoot() {
     .right { grid-column: 3; grid-row: 3; }
     #status { font-size: 0.8rem; color: #555; }
 
-    /* Calibration panel */
     #calPanel {
       width: 100%; max-width: 340px;
       background: #1a1a1a; border: 1px solid #333; border-radius: 10px;
@@ -434,6 +600,8 @@ void handleRoot() {
     <div class="lf-dot" id="lfL"></div>
     <div class="lf-dot" id="lfM"></div>
     <div class="lf-dot" id="lfR"></div>
+    &nbsp;&nbsp;Light: <span id="lightVal" style="color:#0af;font-weight:bold">--%</span>
+    &nbsp;&nbsp;<div class="lf-dot" id="sndDot" title="sound"></div>
   </div>
 
   <div id="modeRow">
@@ -443,6 +611,19 @@ void handleRoot() {
   </div>
 
   <button id="uvBtn" onclick="cycleUV()">UV OFF</button>
+
+  <div id="musicPanel">
+    <div id="musicTop">
+      <span>MUSIC</span>
+      <span><span id="musicTrack">track---</span> &nbsp; <span id="musicState">stopped</span></span>
+    </div>
+    <div id="musicBtns">
+      <button class="mu-btn" onclick="cmd('/muPrev')">&#9198;</button>
+      <button class="mu-btn" onclick="cmd('/muPlay')">&#9199;</button>
+      <button class="mu-btn" onclick="cmd('/muNext')">&#9197;</button>
+      <button class="mu-btn stopBtn" onclick="cmd('/muStop')">&#9209;</button>
+    </div>
+  </div>
 
   <div id="speedRow">
     Speed
@@ -475,15 +656,13 @@ void handleRoot() {
   const calVals  = [255,255,255,255];
   let calTimer   = null;
   let speedTimer = null;
-  let uvState    = 0;       // 0=off 1=on 2=blink
+  let uvState    = 0;
   let currentMode = 'Manual';
 
-  // Direction index → sensor box id
   const dirBox = ['boxF', 'boxR', 'boxB', 'boxL'];
 
   function cmd(c) { fetch(c).catch(() => {}); }
 
-  // ── Mode ──────────────────────────────
   function setMode(mode) {
     currentMode = mode;
     cmd('/mode' + mode);
@@ -494,7 +673,6 @@ void handleRoot() {
     document.querySelectorAll('.btn').forEach(b => b.classList.toggle('disabled', !isManual));
   }
 
-  // ── UV ────────────────────────────────
   const uvLabels   = ['UV OFF', 'UV ON', 'UV BLINK'];
   const uvClasses  = ['', 'on', 'blink'];
   const uvRoutes   = ['/uvOff', '/uvOn', '/uvBlink'];
@@ -511,14 +689,12 @@ void handleRoot() {
     btn.className   = uvClasses[uvState];
   }
 
-  // ── Speed ─────────────────────────────
   function setSpeed(slider) {
     document.getElementById('speedVal').textContent = slider.value + '%';
     clearTimeout(speedTimer);
     speedTimer = setTimeout(() => cmd('/setspeed?v=' + slider.value), 200);
   }
 
-  // ── Calibration ───────────────────────
   function setCal(slider, idx, labelId) {
     calVals[idx] = parseInt(slider.value);
     document.getElementById(labelId).textContent = calVals[idx];
@@ -536,7 +712,6 @@ void handleRoot() {
     }).catch(() => {});
   }
 
-  // Load saved cal + speed on page open
   fetch('/getcal').then(r => r.json()).then(d => {
     [d.m1, d.m2, d.m3, d.m4].forEach((v, i) => {
       calVals[i] = v;
@@ -547,7 +722,6 @@ void handleRoot() {
     document.getElementById('speedVal').textContent = d.spd + '%';
   }).catch(() => {});
 
-  // ── D-pad ─────────────────────────────
   function startCmd(c) {
     if (activeCmd === c) return;
     stopCmd();
@@ -587,22 +761,22 @@ void handleRoot() {
   });
   document.addEventListener('keyup', e => { if (keyMap[e.key] && keyMap[e.key] !== '/stop') stopCmd(); });
 
-  // ── Sensor polling ────────────────────
   function updateSensor(boxId, barId, spanId, value) {
     const box = document.getElementById(boxId);
     const bar = document.getElementById(barId);
     document.getElementById(spanId).textContent = value > 0 ? value : '--';
 
-    // Proximity colour
     box.classList.remove('warn', 'crit');
     if (value > 0 && value < 15)  box.classList.add('crit');
     else if (value > 0 && value < 28) box.classList.add('warn');
 
-    // Distance bar (max range 100 cm shown as 100%)
     const pct = value > 0 ? Math.min(value / 100 * 100, 100) : 0;
     bar.style.width = pct + '%';
     bar.style.background = value > 0 && value < 15 ? '#f44' : value > 0 && value < 28 ? '#f90' : '#0af';
   }
+
+  const msLabels  = ['stopped', 'playing', 'paused'];
+  const msClasses = ['', 'playing', 'paused'];
 
   function updateSensors() {
     fetch('/sensors').then(r => r.json()).then(d => {
@@ -611,17 +785,22 @@ void handleRoot() {
       updateSensor('boxL', 'barL', 'sL', d.L);
       updateSensor('boxR', 'barR', 'sR', d.R);
 
-      // Line follower dots
       document.getElementById('lfL').classList.toggle('on', d.lfl === 1);
       document.getElementById('lfM').classList.toggle('on', d.lfm === 1);
       document.getElementById('lfR').classList.toggle('on', d.lfr === 1);
 
-      // Auto travel direction highlight
+      document.getElementById('lightVal').textContent = d.lt + '%';
+      document.getElementById('sndDot').classList.toggle('on', d.snd === 1);
+
       dirBox.forEach(id => document.getElementById(id).classList.remove('travel'));
       if (d.mode === 1) document.getElementById(dirBox[d.dir]).classList.add('travel');
 
-      // Sync UV button if needed
       if (d.uv !== uvState) { uvState = d.uv; applyUV(); }
+
+      document.getElementById('musicTrack').textContent = 'track' + String(d.mt).padStart(3, '0');
+      const st = document.getElementById('musicState');
+      st.textContent = msLabels[d.ms]  || 'stopped';
+      st.className   = msClasses[d.ms] || '';
     }).catch(() => {});
   }
   setInterval(updateSensors, 500);
@@ -630,7 +809,9 @@ void handleRoot() {
 </body>
 </html>
 )rawhtml";
-  server.send(200, "text/html", page);
+
+void handleRoot() {
+  server.send_P(200, "text/html", INDEX_HTML);
 }
 
 // =====================
