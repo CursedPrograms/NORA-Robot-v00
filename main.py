@@ -47,14 +47,17 @@ class WifiLink:
         import requests
         self.requests = requests
         self.base = f"http://{host}:{port}"
+        self.fleet_base = f"http://{host}:5000"   # NORA's fleet registry — fixed port
         self.ok = False
         self.data = {}
+        self.fleet = {"authority": "NORA", "robots": []}
         self._lock = threading.Lock()
         # commands fire every ~150ms while a key/button is held; a small
         # pool avoids spawning a fresh OS thread for every single one
         self._pool = concurrent.futures.ThreadPoolExecutor(
             max_workers=2, thread_name_prefix="wifi-cmd")
         threading.Thread(target=self._poll, daemon=True).start()
+        threading.Thread(target=self._poll_fleet, daemon=True).start()
 
     def _get(self, path):
         try:
@@ -82,9 +85,25 @@ class WifiLink:
                 self.ok = False
             time.sleep(0.4)
 
+    def _poll_fleet(self):
+        # fleet membership changes slowly — a slower cadence than telemetry is fine,
+        # and a failed poll just keeps the last-known snapshot on screen
+        while True:
+            try:
+                r = self.requests.get(self.fleet_base + "/robots", timeout=1.5)
+                with self._lock:
+                    self.fleet = r.json()
+            except Exception:
+                pass
+            time.sleep(2.0)
+
     def telemetry(self):
         with self._lock:
             return dict(self.data)
+
+    def fleet_snapshot(self):
+        with self._lock:
+            return dict(self.fleet)
 
     # driving -----------------------------------------------------------
     def drive(self, action):   # 'fw' 'bw' 'left' 'right' 'turnL' 'turnR'
@@ -106,6 +125,12 @@ class WifiLink:
 
     def speed(self, pct):
         self._pool.submit(self._get, f"/setspeed?v={pct}")
+
+    def motorlock(self, locked, pw=None):
+        if locked:
+            self._pool.submit(self._get, "/motorlockOn")
+        else:
+            self._pool.submit(self._get, f"/motorlockOff?pw={pw}")
 
 
 class BtLink:
@@ -172,7 +197,7 @@ class BtLink:
             v = v.rstrip("%")
             try:
                 d[{"F": "F", "L": "L", "B": "B", "R": "R", "mode": "mode", "dir": "dir",
-                   "track": "mt", "state": "ms", "light": "lt"}[k]] = float(v)
+                   "track": "mt", "state": "ms", "light": "lt", "lock": "lock"}[k]] = float(v)
             except (KeyError, ValueError):
                 pass
         with self._lock:
@@ -204,6 +229,9 @@ class BtLink:
         """BT's only speed control: a single '+'/'-' step handled onboard."""
         self._send("+" if up else "-")
 
+    def motorlock(self, locked, pw=None):
+        self._send("K" if locked else "V" + (pw or ""))
+
 
 # ----------------------------------------------------------------------------
 # UI
@@ -219,7 +247,7 @@ WARN    = (255, 153, 0)
 CRIT    = (255, 68, 68)
 GOOD    = (0, 255, 136)
 
-W, H = 420, 780
+W, H = 420, 870   # +90 over the base layout to fit the fleet panel
 
 
 class Button:
@@ -448,7 +476,7 @@ def main():
 
     # pull current mode/speed from the robot so the UI doesn't reset them
     # to "Manual"/100% out from under whatever was already running
-    init_mode, init_speed = "Manual", 100
+    init_mode, init_speed, init_locked = "Manual", 100, True
     if isinstance(link, WifiLink):
         cal = link.get_json("/getcal")
         if cal and "spd" in cal:
@@ -457,10 +485,16 @@ def main():
         mode_names = ["Manual", "Auto", "Line"]
         if sensors and int(sensors.get("mode", 0)) in (0, 1, 2):
             init_mode = mode_names[int(sensors["mode"])]
+        if sensors and "lock" in sensors:
+            init_locked = int(sensors["lock"]) == 1
 
     mode = init_mode
     uv_state = 0
     speed = init_speed
+    motor_locked = init_locked   # firmware boots locked; mirror that until told otherwise
+    pw_prompt = False
+    pw_buffer = ""
+    pw_error = ""
     active_drive = None       # current held drive action
     last_repeat = 0
 
@@ -471,6 +505,12 @@ def main():
         buttons.append(b)
         return b
 
+    def update_dpad_enabled():
+        enabled = (mode == "Manual") and not motor_locked
+        for db in dpad_btns.values():
+            db.enabled = enabled
+        stop_btn.enabled = enabled
+
     # mode buttons
     def set_mode(m):
         nonlocal mode
@@ -478,15 +518,12 @@ def main():
         link.mode(m)
         for b, name in zip(mode_btns, ("Manual", "Auto", "Line")):
             b.active = (name == m)
-        is_manual = (m == "Manual")
-        for db in dpad_btns.values():
-            db.enabled = is_manual
-        stop_btn.enabled = is_manual
+        update_dpad_enabled()
 
     mode_btns = [
-        add((20, 320, 120, 38), "MANUAL", lambda: set_mode("Manual"), init_mode == "Manual"),
-        add((150, 320, 120, 38), "AUTO", lambda: set_mode("Auto"), init_mode == "Auto"),
-        add((280, 320, 120, 38), "LINE", lambda: set_mode("Line"), init_mode == "Line"),
+        add((20, 410, 120, 38), "MANUAL", lambda: set_mode("Manual"), init_mode == "Manual"),
+        add((150, 410, 120, 38), "AUTO", lambda: set_mode("Auto"), init_mode == "Auto"),
+        add((280, 410, 120, 38), "LINE", lambda: set_mode("Line"), init_mode == "Line"),
     ]
 
     def cycle_uv():
@@ -496,13 +533,31 @@ def main():
         uv_btn.label = ["UV OFF", "UV ON", "UV BLINK"][uv_state]
         uv_btn.active = uv_state != 0
 
-    uv_btn = add((20, 368, 120, 38), "UV OFF", cycle_uv)
+    uv_btn = add((20, 458, 120, 38), "UV OFF", cycle_uv)
+
+    # motor lock — locking is instant, unlocking needs the password prompt below
+    def toggle_lock():
+        nonlocal motor_locked, pw_prompt, pw_buffer, pw_error
+        if motor_locked:
+            pw_prompt = True
+            pw_buffer = ""
+            pw_error = ""
+        else:
+            motor_locked = True
+            link.motorlock(True)
+            lock_btn.label = "MOTOR LOCK: ON"
+            lock_btn.active = True
+            update_dpad_enabled()
+
+    lock_btn = add((20, 370, W - 40, 32),
+                   "MOTOR LOCK: ON" if motor_locked else "MOTOR LOCK: OFF",
+                   toggle_lock, active=motor_locked)
 
     # music
-    add((150, 368, 60, 38), "|<", lambda: link.music("Prev"))
-    add((215, 368, 60, 38), ">||", lambda: link.music("Play"))
-    add((280, 368, 60, 38), ">|", lambda: link.music("Next"))
-    add((345, 368, 55, 38), "[]", lambda: link.music("Stop"))
+    add((150, 458, 60, 38), "|<", lambda: link.music("Prev"))
+    add((215, 458, 60, 38), ">||", lambda: link.music("Play"))
+    add((280, 458, 60, 38), ">|", lambda: link.music("Next"))
+    add((345, 458, 55, 38), "[]", lambda: link.music("Stop"))
 
     # dpad
     def start_drive(action):
@@ -516,7 +571,7 @@ def main():
             active_drive = None
             link.stop()
 
-    pad_cx, pad_cy, bs, gap = W // 2, 570, 80, 8
+    pad_cx, pad_cy, bs, gap = W // 2, 660, 80, 8
     dpad_defs = [
         ("fw",    (pad_cx - bs // 2, pad_cy - bs - gap - bs // 2), "^"),
         ("bw",    (pad_cx - bs // 2, pad_cy + gap + bs // 2), "v"),
@@ -526,12 +581,13 @@ def main():
         ("turnR", (pad_cx + gap + bs // 2, pad_cy - bs // 2), ">@"),
     ]
     dpad_btns = {}
+    dpad_enabled_init = (init_mode == "Manual") and not motor_locked
     for action, (bx, by), lbl in dpad_defs:
         dpad_btns[action] = add((bx, by, bs, bs), lbl,
                                 lambda a=action: start_drive(a),
-                                enabled=(init_mode == "Manual"))
+                                enabled=dpad_enabled_init)
     stop_btn = add((pad_cx - bs // 2, pad_cy - bs // 2, bs, bs), "STOP",
-                   lambda: link.stop(), enabled=(init_mode == "Manual"))
+                   lambda: link.stop(), enabled=dpad_enabled_init)
 
     key_drive = {
         pygame.K_UP: "fw", pygame.K_DOWN: "bw",
@@ -539,7 +595,7 @@ def main():
         pygame.K_a: "turnL", pygame.K_d: "turnR",
     }
 
-    slider = pygame.Rect(70, 425, W - 140, 8)
+    slider = pygame.Rect(70, 515, W - 140, 8)
     dragging_slider = False
 
     is_bt = isinstance(link, BtLink)   # BT has no absolute-speed command; slider is WiFi-only
@@ -558,6 +614,26 @@ def main():
                 running = False
 
             elif ev.type == pygame.KEYDOWN:
+                if pw_prompt:
+                    if ev.key == pygame.K_ESCAPE:
+                        pw_prompt = False
+                    elif ev.key == pygame.K_RETURN:
+                        if pw_buffer == "1234":
+                            motor_locked = False
+                            link.motorlock(False, pw_buffer)
+                            lock_btn.label = "MOTOR LOCK: OFF"
+                            lock_btn.active = False
+                            update_dpad_enabled()
+                            pw_prompt = False
+                            pw_error = ""
+                        else:
+                            pw_error = "Wrong password"
+                            pw_buffer = ""
+                    elif ev.key == pygame.K_BACKSPACE:
+                        pw_buffer = pw_buffer[:-1]
+                    elif ev.unicode and ev.unicode.isdigit():
+                        pw_buffer += ev.unicode
+                    continue
                 if ev.key == pygame.K_ESCAPE:
                     running = False
                 elif ev.key in key_drive and mode == "Manual":
@@ -584,6 +660,8 @@ def main():
                     stop_drive()
 
             elif ev.type == pygame.MOUSEBUTTONDOWN:
+                if pw_prompt:
+                    continue
                 if not is_bt and slider.inflate(0, 20).collidepoint(ev.pos):
                     dragging_slider = True
                     set_speed_from_mouse(ev.pos[0])
@@ -611,6 +689,14 @@ def main():
         # ---- draw ----
         screen.fill(BG)
         t = link.telemetry()
+
+        # another client (e.g. the web dashboard) may have locked/unlocked
+        # the motors — stay in sync instead of showing a stale state
+        if "lock" in t and (int(t["lock"]) == 1) != motor_locked and not pw_prompt:
+            motor_locked = int(t["lock"]) == 1
+            lock_btn.label = "MOTOR LOCK: ON" if motor_locked else "MOTOR LOCK: OFF"
+            lock_btn.active = motor_locked
+            update_dpad_enabled()
 
         title = f_big.render("NORA", True, ACCENT)
         screen.blit(title, title.get_rect(centerx=W // 2, y=14))
@@ -652,10 +738,35 @@ def main():
         screen.blit(f_sml.render(f"MUSIC   track{mt:03d}", True, ACCENT), (20, 240))
         screen.blit(f_sml.render(state, True, col), (170, 240))
 
+        # fleet panel — who's on the network via NORA's registry (port 5000).
+        # BT is a direct serial link, not on the LAN, so it has no access to this.
+        fy = 268
+        screen.blit(f_sml.render("FLEET", True, DIM), (20, fy))
+        if is_bt:
+            screen.blit(f_sml.render("unavailable over BT", True, DIM), (75, fy))
+        else:
+            fleet = link.fleet_snapshot()
+            authority = fleet.get("authority") or "NORA"
+            is_self = authority == "NORA"
+            auth_txt = "authority: NORA (self)" if is_self else f"authority: {authority}"
+            screen.blit(f_sml.render(auth_txt, True, ACCENT if is_self else WARN), (75, fy))
+
+            others = [r for r in fleet.get("robots", []) if r.get("name") != "NORA"]
+            row_y = fy + 18
+            if not others:
+                screen.blit(f_sml.render("(no other robots registered)", True, DIM), (20, row_y))
+            else:
+                for r in others[:3]:
+                    line = f"• {r.get('name', '?')} ({r.get('type', '?')})"
+                    screen.blit(f_sml.render(line, True, TEXT), (20, row_y))
+                    row_y += 16
+                if len(others) > 3:
+                    screen.blit(f_sml.render(f"+{len(others) - 3} more", True, DIM), (20, row_y))
+
         # speed (BT has no absolute-set command, only +/- nudges the firmware tracks itself)
         speed_col = DIM if is_bt else ACCENT
         screen.blit(f_sml.render("Speed (BT: +/- only)" if is_bt else "Speed", True, DIM),
-                   (20, 418))
+                   (20, 508))
         pygame.draw.rect(screen, (42, 42, 42), slider, border_radius=4)
         pygame.draw.rect(screen, speed_col,
                          (slider.x, slider.y, int(slider.w * speed / 100), 8),
@@ -675,6 +786,23 @@ def main():
             "arrows drive · A/D turn · space stop · U uv · M/N/P/X music · +/- speed",
             True, DIM)
         screen.blit(hint, hint.get_rect(centerx=W // 2, y=H - 28))
+
+        if pw_prompt:
+            overlay = pygame.Surface((W, H), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 180))
+            screen.blit(overlay, (0, 0))
+            box = pygame.Rect(40, H // 2 - 70, W - 80, 140)
+            pygame.draw.rect(screen, PANEL, box, border_radius=10)
+            pygame.draw.rect(screen, ACCENT, box, 2, border_radius=10)
+            prompt_txt = f_med.render("Enter password to unlock motors", True, TEXT)
+            screen.blit(prompt_txt, prompt_txt.get_rect(centerx=W // 2, y=box.y + 16))
+            pw_txt = f_big.render("*" * len(pw_buffer) or " ", True, ACCENT)
+            screen.blit(pw_txt, pw_txt.get_rect(centerx=W // 2, y=box.y + 46))
+            if pw_error:
+                err_txt = f_sml.render(pw_error, True, CRIT)
+                screen.blit(err_txt, err_txt.get_rect(centerx=W // 2, y=box.y + 88))
+            hint2 = f_sml.render("Enter = confirm · Esc = cancel", True, DIM)
+            screen.blit(hint2, hint2.get_rect(centerx=W // 2, y=box.y + 114))
 
         pygame.display.flip()
         clock.tick(60)

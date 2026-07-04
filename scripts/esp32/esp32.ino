@@ -12,6 +12,8 @@
 //   Q=turn left  E=turn right  S=stop
 //   1=manual mode  2=auto mode  3=line mode
 //   U=cycle UV     M=music play/pause  N=next track  P=prev track  X=music stop
+//   K=lock motors (always allowed)
+//   V + 4 chars=unlock motors (password, e.g. "V1234")
 //   +=speed up  -=speed down  ?=print sensor + music status
 BluetoothSerial SerialBT;
 
@@ -93,6 +95,19 @@ int speedPct = 100;
 Preferences prefs;
 
 // =====================
+// MOTOR LOCK
+// =====================
+// Starts locked on every boot so a static-feature test session can never
+// accidentally drive off a counter (this is why it exists — see incident).
+// Locking is always allowed with no password; unlocking requires one,
+// checked here in firmware so every client (web, pygame, raw BT/HTTP)
+// is held to the same gate instead of trusting each app to enforce it.
+#define MOTOR_PASSWORD "1234"
+bool   motorLocked   = true;
+bool   btAwaitingPw  = false;
+String btPwBuffer    = "";
+
+// =====================
 // AUTONOMOUS STATE
 // =====================
 #define DIR_FRONT  0
@@ -120,6 +135,42 @@ unsigned long autoEscapeUntilMs = 0;
 // an immediate stop on re-entry instead of the intended grace period
 int           lineLastTurn    = 1;
 unsigned long lineLostSinceMs = 0;
+
+// =====================
+// FLEET REGISTRY (port 5000)
+// =====================
+// NORA is the always-on node at a fixed address, so she's the natural
+// place for robots (and a fleet manager like RIFT, if one's running) to
+// find each other, instead of every app brute-force-scanning the subnet.
+//
+//   GET  /ping      -> liveness check
+//   POST /register  -> body: name, type, capabilities (comma-separated)
+//   GET  /robots    -> {"authority": "...", "robots": [...]}
+//
+// If something registers with type "fleet_manager" (e.g. RIFT), NORA
+// treats it as the fleet's source of truth: she keeps quietly bookkeeping
+// whoever else registers, but stops *surfacing* her own roster in
+// /robots — callers get pointed at the authority instead. The moment
+// the authority's heartbeat lapses (it closed, crashed, or the network
+// dropped), NORA reclaims the role automatically and starts serving her
+// own roster again. No explicit handoff needed either direction.
+#define FLEET_MAX    8
+#define FLEET_TTL_MS 20000   // drop an entry (or the authority) after this long without a heartbeat
+
+struct FleetEntry {
+  bool          used = false;
+  String        name;
+  String        type;
+  String        capabilities;   // as given, comma-separated
+  IPAddress     ip;
+  unsigned long lastSeenMs = 0;
+};
+
+FleetEntry    fleet[FLEET_MAX];
+WebServer     fleetServer(5000);
+
+String        authorityName      = "NORA";
+unsigned long authorityExpiresMs = 0;   // 0 = NORA herself is the authority
 
 // =====================
 // SENSOR VALUES
@@ -192,6 +243,21 @@ void setup() {
   server.on("/uvOn",    []() { uvMode = 1; server.send(200, "text/plain", "OK"); });
   server.on("/uvBlink", []() { uvMode = 2; server.send(200, "text/plain", "OK"); });
 
+  // Motor lock — lock is free, unlock needs the password
+  server.on("/motorlockOn", []() {
+    motorLocked = true;
+    stopMotors();
+    server.send(200, "text/plain", "OK");
+  });
+  server.on("/motorlockOff", []() {
+    if (server.hasArg("pw") && server.arg("pw") == MOTOR_PASSWORD) {
+      motorLocked = false;
+      server.send(200, "text/plain", "OK");
+    } else {
+      server.send(403, "text/plain", "DENIED");
+    }
+  });
+
   // Music player -> forwarded to Arduino over serial
   server.on("/muPlay", []() { Serial.println("M:PLAY"); server.send(200, "text/plain", "OK"); });
   server.on("/muNext", []() { Serial.println("M:NEXT"); server.send(200, "text/plain", "OK"); });
@@ -241,12 +307,15 @@ void setup() {
                   ",\"mt\":"   + String(musicTrack)  +
                   ",\"ms\":"   + String(musicState)  +
                   ",\"lt\":"   + String(lightPct)    +
-                  ",\"snd\":"  + String(soundRecent ? 1 : 0) + "}";
+                  ",\"snd\":"  + String(soundRecent ? 1 : 0) +
+                  ",\"lock\":" + String(motorLocked ? 1 : 0) + "}";
     server.send(200, "application/json", json);
   });
 
   server.on("/", handleRoot);
   server.begin();
+
+  setupFleetServer();
 }
 
 // =====================
@@ -254,6 +323,7 @@ void setup() {
 // =====================
 void loop() {
   server.handleClient();
+  fleetServer.handleClient();
   handleBluetooth();
   readSerialSensors();
 
@@ -316,6 +386,21 @@ void handleBluetooth() {
     char c = SerialBT.read();
     if (c == '\n' || c == '\r' || c == ' ') continue;
 
+    if (btAwaitingPw) {
+      btPwBuffer += c;
+      if (btPwBuffer.length() >= 4) {
+        if (btPwBuffer == MOTOR_PASSWORD) {
+          motorLocked = false;
+          SerialBT.println("motorlock: off");
+        } else {
+          SerialBT.println("motorlock: denied");
+        }
+        btAwaitingPw = false;
+        btPwBuffer   = "";
+      }
+      continue;
+    }
+
     switch (c) {
       // ---- driving (manual mode only, same rule as the web pad) ----
       case 'F': case 'f': if (driveMode == MODE_MANUAL) moveForward();  break;
@@ -337,6 +422,17 @@ void handleBluetooth() {
         SerialBT.println(uvMode == 0 ? "uv: off" : uvMode == 1 ? "uv: on" : "uv: blink");
         break;
 
+      // ---- motor lock: 'K' locks (free), 'V' arms unlock (next 4 chars = password) ----
+      case 'K': case 'k':
+        motorLocked = true;
+        stopMotors();
+        SerialBT.println("motorlock: on");
+        break;
+      case 'V': case 'v':
+        btAwaitingPw = true;
+        btPwBuffer   = "";
+        break;
+
       // ---- music (forwarded to the Arduino) ----
       case 'M': case 'm': Serial.println("M:PLAY"); break;
       case 'N': case 'n': Serial.println("M:NEXT"); break;
@@ -355,7 +451,8 @@ void handleBluetooth() {
         SerialBT.print(" track:"); SerialBT.print(musicTrack);
         SerialBT.print(" state:"); SerialBT.print(musicState);
         SerialBT.print(" light:"); SerialBT.print(lightPct);
-        SerialBT.print("% sound:"); SerialBT.println(soundRecent ? "yes" : "no");
+        SerialBT.print("% sound:"); SerialBT.print(soundRecent ? "yes" : "no");
+        SerialBT.print(" lock:");   SerialBT.println(motorLocked ? 1 : 0);
         break;
 
       // ---- speed nudge ----
@@ -555,6 +652,109 @@ void AutonomousMode(float front, float left, float back, float right) {
 }
 
 // =====================
+// FLEET REGISTRY LOGIC
+// =====================
+void fleetPrune() {
+  unsigned long now = millis();
+  for (int i = 0; i < FLEET_MAX; i++) {
+    if (fleet[i].used && now - fleet[i].lastSeenMs > FLEET_TTL_MS) fleet[i].used = false;
+  }
+  if (authorityExpiresMs != 0 && now > authorityExpiresMs) {
+    authorityName      = "NORA";   // authority's heartbeat lapsed — reclaim the role
+    authorityExpiresMs = 0;
+  }
+}
+
+void fleetRegister(const String &name, const String &type, const String &caps, IPAddress ip) {
+  unsigned long now = millis();
+  int slot = -1;
+  for (int i = 0; i < FLEET_MAX; i++) {
+    if (fleet[i].used && fleet[i].name == name) { slot = i; break; }   // re-register = heartbeat
+  }
+  if (slot == -1) {
+    for (int i = 0; i < FLEET_MAX; i++) if (!fleet[i].used) { slot = i; break; }
+  }
+  if (slot == -1) return;   // registry full — stale entries free up via TTL on their own
+
+  fleet[slot].used         = true;
+  fleet[slot].name         = name;
+  fleet[slot].type         = type;
+  fleet[slot].capabilities = caps;
+  fleet[slot].ip           = ip;
+  fleet[slot].lastSeenMs   = now;
+
+  if (type == "fleet_manager") {
+    authorityName      = name;
+    authorityExpiresMs = now + FLEET_TTL_MS;
+  }
+}
+
+// "a, b,c" -> ["a","b","c"]
+String fleetCapsToJsonArray(const String &caps) {
+  String out = "[";
+  int  start = 0;
+  bool first = true;
+  while (start <= (int)caps.length()) {
+    int comma = caps.indexOf(',', start);
+    String item = (comma == -1) ? caps.substring(start) : caps.substring(start, comma);
+    item.trim();
+    if (item.length()) {
+      if (!first) out += ",";
+      out += "\"" + item + "\"";
+      first = false;
+    }
+    if (comma == -1) break;
+    start = comma + 1;
+  }
+  out += "]";
+  return out;
+}
+
+void setupFleetServer() {
+  fleetServer.on("/ping", []() {
+    fleetServer.send(200, "text/plain", "NORA alive");
+  });
+
+  fleetServer.on("/register", HTTP_POST, []() {
+    String name = fleetServer.hasArg("name") ? fleetServer.arg("name") : "";
+    String type = fleetServer.hasArg("type") ? fleetServer.arg("type") : "unknown";
+    String caps = fleetServer.hasArg("capabilities") ? fleetServer.arg("capabilities") : "";
+    if (name.length() == 0) {
+      fleetServer.send(400, "text/plain", "missing 'name'");
+      return;
+    }
+    fleetRegister(name, type, caps, fleetServer.client().remoteIP());
+    fleetServer.send(200, "text/plain", "OK");
+  });
+
+  fleetServer.on("/robots", HTTP_GET, []() {
+    fleetPrune();
+
+    String json = "{\"authority\":\"" + authorityName + "\",\"robots\":[";
+    json += "{\"name\":\"NORA\",\"type\":\"omni\",\"ip\":\"" + WiFi.softAPIP().toString() +
+            "\",\"capabilities\":[\"obstacle_avoidance\",\"line_follow\",\"uv_light\",\"music\"]}";
+
+    // While someone else is the live authority, don't also author a
+    // competing roster — just point callers at her. Entries registered
+    // during that time are still tracked quietly so there's no gap the
+    // instant NORA reclaims the role.
+    if (authorityExpiresMs == 0) {
+      for (int i = 0; i < FLEET_MAX; i++) {
+        if (!fleet[i].used) continue;
+        json += ",{\"name\":\"" + fleet[i].name + "\",\"type\":\"" + fleet[i].type +
+                "\",\"ip\":\"" + fleet[i].ip.toString() +
+                "\",\"capabilities\":" + fleetCapsToJsonArray(fleet[i].capabilities) + "}";
+      }
+    }
+
+    json += "]}";
+    fleetServer.send(200, "application/json", json);
+  });
+
+  fleetServer.begin();
+}
+
+// =====================
 // WEB PAGE (stored in flash, not RAM)
 // =====================
 static const char INDEX_HTML[] PROGMEM = R"rawhtml(
@@ -611,6 +811,14 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     }
     #uvBtn.on    { border-color: #bb0; color: #ff0; background: #1a1900; }
     #uvBtn.blink { border-color: #f80; color: #f80; background: #1a1000; }
+
+    #lockBtn {
+      padding: 9px 20px; border: 2px solid #444; border-radius: 8px;
+      font-size: 0.85rem; font-weight: bold; cursor: pointer;
+      background: #1e1e1e; color: #aaa; transition: all 0.2s;
+    }
+    #lockBtn.locked   { border-color: #f44; color: #f44; background: #1a0a0a; }
+    #lockBtn.unlocked { border-color: #0f8; color: #0f8; background: #001a10; }
 
     /* Music player */
     #musicPanel {
@@ -721,6 +929,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
   </div>
 
   <button id="uvBtn" onclick="cycleUV()">UV OFF</button>
+  <button id="lockBtn" class="locked" onclick="toggleLock()">MOTOR LOCK: ON</button>
 
   <div id="musicPanel">
     <div id="musicTop">
@@ -768,6 +977,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
   let speedTimer = null;
   let uvState    = 0;
   let currentMode = 'Manual';
+  let motorLocked = true;   // matches firmware's boot-time default
 
   const dirBox = ['boxF', 'boxR', 'boxB', 'boxL'];
 
@@ -779,8 +989,32 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     ['Manual','Auto','Line'].forEach(m =>
       document.getElementById('btn' + m).classList.toggle('active', m === mode)
     );
-    const isManual = mode === 'Manual';
-    document.querySelectorAll('.btn').forEach(b => b.classList.toggle('disabled', !isManual));
+    updateDpadEnabled();
+  }
+
+  function updateDpadEnabled() {
+    const enabled = currentMode === 'Manual' && !motorLocked;
+    document.querySelectorAll('.btn').forEach(b => b.classList.toggle('disabled', !enabled));
+  }
+
+  function applyLock() {
+    const btn = document.getElementById('lockBtn');
+    btn.textContent = motorLocked ? 'MOTOR LOCK: ON' : 'MOTOR LOCK: OFF';
+    btn.className   = motorLocked ? 'locked' : 'unlocked';
+    updateDpadEnabled();
+  }
+
+  function toggleLock() {
+    if (motorLocked) {
+      const pw = prompt('Enter password to unlock motors:');
+      if (pw === null) return;
+      fetch('/motorlockOff?pw=' + encodeURIComponent(pw)).then(r => {
+        if (r.ok) { motorLocked = false; applyLock(); }
+        else { alert('Wrong password — motors stay locked.'); }
+      }).catch(() => {});
+    } else {
+      fetch('/motorlockOn').then(() => { motorLocked = true; applyLock(); }).catch(() => {});
+    }
   }
 
   const uvLabels   = ['UV OFF', 'UV ON', 'UV BLINK'];
@@ -907,6 +1141,9 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
       if (d.uv !== uvState) { uvState = d.uv; applyUV(); }
 
+      const lockState = d.lock === 1;
+      if (lockState !== motorLocked) { motorLocked = lockState; applyLock(); }
+
       document.getElementById('musicTrack').textContent = 'track' + String(d.mt).padStart(3, '0');
       const st = document.getElementById('musicState');
       st.textContent = msLabels[d.ms]  || 'stopped';
@@ -942,6 +1179,12 @@ void stopMotors() {
 }
 
 void setMotor(int ena, int pin1, int pin2, int s1, int s2, int speed, int scale) {
+  if (motorLocked) {
+    analogWrite(ena, 0);
+    digitalWrite(pin1, LOW);
+    digitalWrite(pin2, LOW);
+    return;
+  }
   analogWrite(ena, (speed * speedPct * scale) / 10000);
   digitalWrite(pin1, s1);
   digitalWrite(pin2, s2);
