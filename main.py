@@ -237,15 +237,19 @@ class BtLink:
 # UI
 # ----------------------------------------------------------------------------
 
-BG      = (17, 17, 17)
-PANEL   = (30, 30, 30)
-BORDER  = (51, 51, 51)
-TEXT    = (238, 238, 238)
-DIM     = (102, 102, 102)
-ACCENT  = (0, 170, 255)
-WARN    = (255, 153, 0)
-CRIT    = (255, 68, 68)
-GOOD    = (0, 255, 136)
+# Same palette as KIDA's HUD (dark navy "circuit board" theme) — one look
+# across the fleet instead of every robot's controller having its own.
+BG      = (7, 9, 15)        # --bg     #07090f
+PANEL   = (10, 14, 26)      # --panel  #0a0e1a
+BORDER  = (30, 52, 88)      # --border #1e3458
+TEXT    = (215, 230, 255)   # --text-val #d7e6ff
+DIM     = (74, 95, 128)     # --text-dim #4a5f80
+ACCENT  = (100, 150, 230)   # --accent #6496e6
+WARN    = (255, 190, 80)    # --orange #ffbe50
+CRIT    = (200, 64, 64)     # --red    #c84040
+GOOD    = (70, 215, 100)    # --green  #46d764
+ACCENT_BG = (18, 26, 41)    # accent blended ~12% into BG, for "active" fills
+GOOD_BG   = (18, 46, 30)    # good blended into BG, for the CONNECT button
 
 W, H = 420, 870   # +90 over the base layout to fit the fleet panel
 
@@ -262,17 +266,17 @@ class Button:
 
     def draw(self, surf):
         if not self.enabled:
-            pygame.draw.rect(surf, PANEL, self.rect, border_radius=8)
-            pygame.draw.rect(surf, (40, 40, 40), self.rect, 2, border_radius=8)
-            txt = self.font.render(self.label, True, (60, 60, 60))
+            pygame.draw.rect(surf, PANEL, self.rect, border_radius=6)
+            pygame.draw.rect(surf, (16, 22, 36), self.rect, 2, border_radius=6)
+            txt = self.font.render(self.label, True, (40, 52, 74))
             surf.blit(txt, txt.get_rect(center=self.rect.center))
             return
         color = ACCENT if (self.active or self.pressed) else BORDER
-        bg = (0, 26, 42) if (self.active or self.pressed) else PANEL
-        pygame.draw.rect(surf, bg, self.rect, border_radius=8)
-        pygame.draw.rect(surf, color, self.rect, 2, border_radius=8)
+        bg = ACCENT_BG if (self.active or self.pressed) else PANEL
+        pygame.draw.rect(surf, bg, self.rect, border_radius=6)
+        pygame.draw.rect(surf, color, self.rect, 2, border_radius=6)
         txt = self.font.render(self.label, True,
-                               ACCENT if (self.active or self.pressed) else (170, 170, 170))
+                               ACCENT if (self.active or self.pressed) else DIM)
         surf.blit(txt, txt.get_rect(center=self.rect.center))
 
     def hit(self, pos):
@@ -288,15 +292,15 @@ def sensor_bar(surf, font, x, y, w, label, value, traveling=False):
         color = WARN
     elif traveling:
         color = ACCENT
-    bg = (0, 26, 42) if (traveling and color == ACCENT) else PANEL
-    pygame.draw.rect(surf, bg, box, border_radius=8)
-    pygame.draw.rect(surf, color, box, 2, border_radius=8)
+    bg = ACCENT_BG if (traveling and color == ACCENT) else PANEL
+    pygame.draw.rect(surf, bg, box, border_radius=6)
+    pygame.draw.rect(surf, color, box, 2, border_radius=6)
     txt = font.render(f"{label}  {value:.0f} cm" if value > 0 else f"{label}  --",
                       True, TEXT)
     surf.blit(txt, (x + 10, y + 7))
     # distance bar
     bar_bg = pygame.Rect(x + 10, y + 32, w - 20, 5)
-    pygame.draw.rect(surf, (42, 42, 42), bar_bg, border_radius=3)
+    pygame.draw.rect(surf, (16, 22, 36), bar_bg, border_radius=3)
     if value > 0:
         pct = min(value / 100.0, 1.0)
         fill = CRIT if value < 15 else WARN if value < 28 else ACCENT
@@ -387,10 +391,10 @@ def connection_picker(screen, clock, f_big, f_med, f_sml, host, port, btport):
              "needs a BT adapter + paired serial port"),
         ):
             sel = choice == key
-            pygame.draw.rect(screen, (0, 26, 42) if sel else PANEL, rect,
-                             border_radius=10)
+            pygame.draw.rect(screen, ACCENT_BG if sel else PANEL, rect,
+                             border_radius=6)
             pygame.draw.rect(screen, ACCENT if sel else BORDER, rect, 2,
-                             border_radius=10)
+                             border_radius=6)
             screen.blit(f_med.render(label, True, ACCENT if sel else TEXT),
                         (rect.x + 16, rect.y + 8))
             screen.blit(f_sml.render(note, True, DIM),
@@ -415,8 +419,8 @@ def connection_picker(screen, clock, f_big, f_med, f_sml, host, port, btport):
             screen.blit(f_med.render(fields["btport"], True, TEXT),
                         (btp_box.x + 10, btp_box.y + 10))
 
-        pygame.draw.rect(screen, (0, 60, 30), go_btn, border_radius=10)
-        pygame.draw.rect(screen, GOOD, go_btn, 2, border_radius=10)
+        pygame.draw.rect(screen, GOOD_BG, go_btn, border_radius=6)
+        pygame.draw.rect(screen, GOOD, go_btn, 2, border_radius=6)
         go = f_med.render("CONNECT", True, GOOD)
         screen.blit(go, go.get_rect(center=go_btn.center))
 
@@ -446,9 +450,10 @@ def main():
     screen = pygame.display.set_mode((W, H))
     pygame.display.set_caption("NORA Control")
     clock = pygame.time.Clock()
-    f_big = pygame.font.SysFont("dejavusans", 26, bold=True)
-    f_med = pygame.font.SysFont("dejavusans", 15, bold=True)
-    f_sml = pygame.font.SysFont("dejavusans", 13)
+    # monospace to match KIDA's HUD font family
+    f_big = pygame.font.SysFont("monospace", 26, bold=True)
+    f_med = pygame.font.SysFont("monospace", 15, bold=True)
+    f_sml = pygame.font.SysFont("monospace", 13)
 
     if args.bt:
         try:
@@ -718,17 +723,17 @@ def main():
         screen.blit(f_sml.render("Line:", True, DIM), (20, y + 3))
         for i, key in enumerate(("lfl", "lfm", "lfr")):
             on = t.get(key, 0) == 1
-            pygame.draw.circle(screen, ACCENT if on else (34, 34, 34),
+            pygame.draw.circle(screen, ACCENT if on else PANEL,
                                (75 + i * 30, y + 10), 10)
-            pygame.draw.circle(screen, ACCENT if on else (68, 68, 68),
+            pygame.draw.circle(screen, ACCENT if on else BORDER,
                                (75 + i * 30, y + 10), 10, 2)
         lt = t.get("lt")
         screen.blit(f_sml.render(
             f"Light: {int(lt)}%" if lt is not None else "Light: --",
             True, TEXT), (180, y + 3))
         snd = t.get("snd", 0) == 1
-        pygame.draw.circle(screen, GOOD if snd else (34, 34, 34), (300, y + 10), 10)
-        pygame.draw.circle(screen, GOOD if snd else (68, 68, 68), (300, y + 10), 10, 2)
+        pygame.draw.circle(screen, GOOD if snd else PANEL, (300, y + 10), 10)
+        pygame.draw.circle(screen, GOOD if snd else BORDER, (300, y + 10), 10, 2)
         screen.blit(f_sml.render("sound", True, DIM), (315, y + 3))
 
         # music readout
@@ -767,7 +772,7 @@ def main():
         speed_col = DIM if is_bt else ACCENT
         screen.blit(f_sml.render("Speed (BT: +/- only)" if is_bt else "Speed", True, DIM),
                    (20, 508))
-        pygame.draw.rect(screen, (42, 42, 42), slider, border_radius=4)
+        pygame.draw.rect(screen, (16, 22, 36), slider, border_radius=4)
         pygame.draw.rect(screen, speed_col,
                          (slider.x, slider.y, int(slider.w * speed / 100), 8),
                          border_radius=4)
@@ -780,7 +785,7 @@ def main():
         # highlight held direction
         if active_drive:
             pygame.draw.rect(screen, ACCENT, dpad_btns[active_drive].rect, 3,
-                             border_radius=8)
+                             border_radius=6)
 
         hint = f_sml.render(
             "arrows drive · A/D turn · space stop · U uv · M/N/P/X music · +/- speed",
@@ -792,8 +797,8 @@ def main():
             overlay.fill((0, 0, 0, 180))
             screen.blit(overlay, (0, 0))
             box = pygame.Rect(40, H // 2 - 70, W - 80, 140)
-            pygame.draw.rect(screen, PANEL, box, border_radius=10)
-            pygame.draw.rect(screen, ACCENT, box, 2, border_radius=10)
+            pygame.draw.rect(screen, PANEL, box, border_radius=6)
+            pygame.draw.rect(screen, ACCENT, box, 2, border_radius=6)
             prompt_txt = f_med.render("Enter password to unlock motors", True, TEXT)
             screen.blit(prompt_txt, prompt_txt.get_rect(centerx=W // 2, y=box.y + 16))
             pw_txt = f_big.render("*" * len(pw_buffer) or " ", True, ACCENT)

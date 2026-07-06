@@ -764,88 +764,107 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
   <title>NORA Control</title>
   <style>
+    :root {
+      /* same palette as KIDA's HUD (styles.css) — one look across the fleet */
+      --bg:          #07090f;
+      --panel:       #0a0e1a;
+      --border:      #1e3458;
+      --accent:      #6496e6;
+      --accent-rgb:  100,150,230;
+      --text:        #a0b8e8;
+      --text-dim:    #4a5f80;
+      --text-val:    #d7e6ff;
+      --green:       #46d764;
+      --green-rgb:   70,215,100;
+      --orange:      #ffbe50;
+      --orange-rgb:  255,190,80;
+      --red:         #c84040;
+      --red-rgb:     200,64,64;
+      --radius:      6px;
+      --font:        'Courier New', Courier, monospace;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: #111; color: #eee;
-      font-family: 'Segoe UI', sans-serif;
+      background: var(--bg); color: var(--text);
+      font-family: var(--font);
       display: flex; flex-direction: column; align-items: center;
       min-height: 100vh; padding: 20px; gap: 16px;
     }
-    h1 { font-size: 1.6rem; letter-spacing: 3px; color: #0af; }
-    h2 { font-size: 0.8rem; color: #555; letter-spacing: 1px; }
+    h1 { font-size: 1.6rem; letter-spacing: 3px; color: var(--accent); }
+    h2 { font-size: 0.8rem; color: var(--text-dim); letter-spacing: 1px; }
 
     #sensors { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; max-width: 340px; }
     .sensor-box {
-      background: #1e1e1e; border: 2px solid #333; border-radius: 8px;
+      background: var(--panel); border: 2px solid var(--border); border-radius: var(--radius);
       padding: 8px 12px; font-size: 0.85rem;
       display: flex; flex-direction: column; gap: 4px;
       transition: border-color 0.3s, background 0.3s;
     }
     .sensor-top { display: flex; justify-content: space-between; }
-    .sensor-box span { color: #0af; font-weight: bold; }
-    .sensor-box.warn  { border-color: #f90; }
-    .sensor-box.crit  { border-color: #f44; background: #1a0a0a; }
-    .sensor-box.travel { border-color: #0af; background: #001a2a; }
-    .dist-bar-bg { background: #2a2a2a; border-radius: 3px; height: 4px; overflow: hidden; }
-    .dist-bar    { height: 4px; border-radius: 3px; background: #0af; transition: width 0.3s, background 0.3s; width: 0%; }
+    .sensor-box span { color: var(--accent); font-weight: bold; }
+    .sensor-box.warn  { border-color: var(--orange); }
+    .sensor-box.crit  { border-color: var(--red); background: rgba(var(--red-rgb), 0.12); }
+    .sensor-box.travel { border-color: var(--accent); background: rgba(var(--accent-rgb), 0.12); }
+    .dist-bar-bg { background: rgba(var(--accent-rgb), 0.1); border-radius: 3px; height: 4px; overflow: hidden; }
+    .dist-bar    { height: 4px; border-radius: 3px; background: var(--accent); transition: width 0.3s, background 0.3s; width: 0%; }
 
-    #lfRow { display: flex; gap: 8px; align-items: center; font-size: 0.8rem; color: #666; }
+    #lfRow { display: flex; gap: 8px; align-items: center; font-size: 0.8rem; color: var(--text-dim); }
     .lf-dot {
       width: 20px; height: 20px; border-radius: 50%;
-      background: #222; border: 2px solid #444; transition: background 0.1s, border-color 0.1s;
+      background: var(--panel); border: 2px solid var(--border); transition: background 0.1s, border-color 0.1s;
     }
-    .lf-dot.on { background: #0af; border-color: #0af; }
+    .lf-dot.on { background: var(--accent); border-color: var(--accent); }
 
     #modeRow { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
     .mode-btn {
-      padding: 10px 18px; border: 2px solid #333; border-radius: 8px;
+      padding: 10px 18px; border: 2px solid var(--border); border-radius: var(--radius);
       font-size: 0.85rem; font-weight: bold; cursor: pointer;
-      background: #1e1e1e; color: #aaa;
+      background: var(--panel); color: var(--text-dim);
     }
-    .mode-btn.active { border-color: #0af; color: #0af; background: #001a2a; }
+    .mode-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(var(--accent-rgb), 0.12); }
 
     #uvBtn {
-      padding: 9px 20px; border: 2px solid #444; border-radius: 8px;
+      padding: 9px 20px; border: 2px solid var(--border); border-radius: var(--radius);
       font-size: 0.85rem; font-weight: bold; cursor: pointer;
-      background: #1e1e1e; color: #aaa; transition: all 0.2s;
+      background: var(--panel); color: var(--text-dim); transition: all 0.2s;
     }
-    #uvBtn.on    { border-color: #bb0; color: #ff0; background: #1a1900; }
-    #uvBtn.blink { border-color: #f80; color: #f80; background: #1a1000; }
+    #uvBtn.on    { border-color: var(--orange); color: var(--orange); background: rgba(var(--orange-rgb), 0.12); }
+    #uvBtn.blink { border-color: var(--red);    color: var(--red);    background: rgba(var(--red-rgb), 0.12); }
 
     #lockBtn {
-      padding: 9px 20px; border: 2px solid #444; border-radius: 8px;
+      padding: 9px 20px; border: 2px solid var(--border); border-radius: var(--radius);
       font-size: 0.85rem; font-weight: bold; cursor: pointer;
-      background: #1e1e1e; color: #aaa; transition: all 0.2s;
+      background: var(--panel); color: var(--text-dim); transition: all 0.2s;
     }
-    #lockBtn.locked   { border-color: #f44; color: #f44; background: #1a0a0a; }
-    #lockBtn.unlocked { border-color: #0f8; color: #0f8; background: #001a10; }
+    #lockBtn.locked   { border-color: var(--red);   color: var(--red);   background: rgba(var(--red-rgb), 0.12); }
+    #lockBtn.unlocked { border-color: var(--green); color: var(--green); background: rgba(var(--green-rgb), 0.12); }
 
     /* Music player */
     #musicPanel {
       width: 100%; max-width: 340px;
-      background: #1a1a1a; border: 1px solid #333; border-radius: 10px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
       padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
     }
-    #musicTop { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #666; }
-    #musicTrack { color: #0af; font-weight: bold; }
-    #musicState { color: #888; }
-    #musicState.playing { color: #0f8; }
-    #musicState.paused  { color: #f90; }
+    #musicTop { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--text-dim); }
+    #musicTrack { color: var(--accent); font-weight: bold; }
+    #musicState { color: var(--text-dim); }
+    #musicState.playing { color: var(--green); }
+    #musicState.paused  { color: var(--orange); }
     #musicBtns { display: flex; gap: 8px; justify-content: center; }
     .mu-btn {
-      flex: 1; padding: 10px 0; border: 2px solid #333; border-radius: 8px;
-      background: #1e1e1e; color: #ccc; font-size: 1rem; cursor: pointer;
+      flex: 1; padding: 10px 0; border: 2px solid var(--border); border-radius: var(--radius);
+      background: var(--panel); color: var(--text); font-size: 1rem; cursor: pointer;
       -webkit-tap-highlight-color: transparent;
     }
-    .mu-btn:active { border-color: #0af; color: #0af; }
-    .mu-btn.stopBtn { color: #f55; }
+    .mu-btn:active { border-color: var(--accent); color: var(--accent); }
+    .mu-btn.stopBtn { color: var(--red); }
 
     #speedRow {
       display: flex; align-items: center; gap: 10px;
-      width: 100%; max-width: 340px; font-size: 0.85rem; color: #aaa;
+      width: 100%; max-width: 340px; font-size: 0.85rem; color: var(--text-dim);
     }
-    #speedRow input[type=range] { flex: 1; accent-color: #0af; }
-    #speedVal { width: 36px; text-align: right; color: #0af; font-weight: bold; }
+    #speedRow input[type=range] { flex: 1; accent-color: var(--accent); }
+    #speedVal { width: 36px; text-align: right; color: var(--accent); font-weight: bold; }
 
     .dpad {
       display: grid;
@@ -854,16 +873,16 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       gap: 8px;
     }
     .btn {
-      background: #1e1e1e; border: 2px solid #333; border-radius: 12px;
-      color: #eee; font-size: 1.5rem; cursor: pointer; user-select: none;
+      background: var(--panel); border: 2px solid var(--border); border-radius: var(--radius);
+      color: var(--text-val); font-size: 1.5rem; cursor: pointer; user-select: none;
       display: flex; align-items: center; justify-content: center;
       -webkit-tap-highlight-color: transparent; transition: opacity 0.2s;
       touch-action: none;
     }
     .btn.disabled { opacity: 0.25; pointer-events: none; }
-    .btn.pressed  { background: #004466; border-color: #0af; }
-    .btn.stop-btn { background: #2a0000; border-color: #a00; font-size: 0.8rem; font-weight: bold; color: #f55; }
-    .btn.stop-btn.pressed { background: #500; }
+    .btn.pressed  { background: rgba(var(--accent-rgb), 0.25); border-color: var(--accent); }
+    .btn.stop-btn { background: rgba(var(--red-rgb), 0.15); border-color: var(--red); font-size: 0.8rem; font-weight: bold; color: var(--red); }
+    .btn.stop-btn.pressed { background: rgba(var(--red-rgb), 0.3); }
     .fw    { grid-column: 2; grid-row: 1; }
     .turnL { grid-column: 1; grid-row: 2; }
     .left  { grid-column: 1; grid-row: 3; }
@@ -871,23 +890,23 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     .bw    { grid-column: 2; grid-row: 3; }
     .turnR { grid-column: 3; grid-row: 2; }
     .right { grid-column: 3; grid-row: 3; }
-    #status { font-size: 0.8rem; color: #555; }
+    #status { font-size: 0.8rem; color: var(--text-dim); }
 
     #calPanel {
       width: 100%; max-width: 340px;
-      background: #1a1a1a; border: 1px solid #333; border-radius: 10px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
       padding: 14px; display: flex; flex-direction: column; gap: 10px;
     }
-    #calPanel summary { font-size: 0.85rem; color: #0af; cursor: pointer; user-select: none; font-weight: bold; }
+    #calPanel summary { font-size: 0.85rem; color: var(--accent); cursor: pointer; user-select: none; font-weight: bold; }
     .cal-row { display: flex; align-items: center; gap: 10px; font-size: 0.8rem; }
-    .cal-row label { width: 24px; color: #aaa; }
-    .cal-row input[type=range] { flex: 1; accent-color: #0af; }
-    .cal-row span { width: 30px; text-align: right; color: #0af; font-weight: bold; }
+    .cal-row label { width: 24px; color: var(--text-dim); }
+    .cal-row input[type=range] { flex: 1; accent-color: var(--accent); }
+    .cal-row span { width: 30px; text-align: right; color: var(--accent); font-weight: bold; }
     #saveCalBtn {
-      align-self: flex-end; padding: 6px 16px; background: #0a5; border: none;
-      border-radius: 6px; color: #fff; font-size: 0.8rem; font-weight: bold; cursor: pointer;
+      align-self: flex-end; padding: 6px 16px; background: var(--green); border: none;
+      border-radius: var(--radius); color: var(--bg); font-size: 0.8rem; font-weight: bold; cursor: pointer;
     }
-    #saveCalBtn.saved { background: #555; }
+    #saveCalBtn.saved { background: var(--text-dim); }
   </style>
 </head>
 <body>
@@ -918,7 +937,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     <div class="lf-dot" id="lfL"></div>
     <div class="lf-dot" id="lfM"></div>
     <div class="lf-dot" id="lfR"></div>
-    &nbsp;&nbsp;Light: <span id="lightVal" style="color:#0af;font-weight:bold">--%</span>
+    &nbsp;&nbsp;Light: <span id="lightVal" style="color:var(--accent);font-weight:bold">--%</span>
     &nbsp;&nbsp;<div class="lf-dot" id="sndDot" title="sound"></div>
   </div>
 
@@ -1116,7 +1135,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
     const pct = value > 0 ? Math.min(value / 100 * 100, 100) : 0;
     bar.style.width = pct + '%';
-    bar.style.background = value > 0 && value < 15 ? '#f44' : value > 0 && value < 28 ? '#f90' : '#0af';
+    bar.style.background = value > 0 && value < 15 ? '#c84040' : value > 0 && value < 28 ? '#ffbe50' : '#6496e6';
   }
 
   const msLabels  = ['stopped', 'playing', 'paused'];
