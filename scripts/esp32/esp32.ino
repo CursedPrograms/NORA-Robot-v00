@@ -95,6 +95,28 @@ int speedPct = 100;
 Preferences prefs;
 
 // =====================
+// FLEET TEXT MESSAGES
+// =====================
+// NORA has no display/speaker, so incoming "/message" text just lands in a
+// small ring buffer that other fleet nodes (RIFT, ComCentre) can poll via
+// "/messages" — a lightweight message board rather than something acted on.
+#define MESSAGE_LOG_SIZE 10
+String messageLog[MESSAGE_LOG_SIZE];
+int    messageLogHead  = 0;
+int    messageLogCount = 0;
+
+String jsonEscape(const String &in) {
+  String out;
+  out.reserve(in.length() + 4);
+  for (size_t i = 0; i < in.length(); i++) {
+    char c = in[i];
+    if (c == '"' || c == '\\') out += '\\';
+    out += c;
+  }
+  return out;
+}
+
+// =====================
 // MOTOR LOCK
 // =====================
 // Starts locked on every boot so a static-feature test session can never
@@ -263,6 +285,34 @@ void setup() {
   server.on("/muNext", []() { Serial.println("M:NEXT"); server.send(200, "text/plain", "OK"); });
   server.on("/muPrev", []() { Serial.println("M:PREV"); server.send(200, "text/plain", "OK"); });
   server.on("/muStop", []() { Serial.println("M:STOP"); server.send(200, "text/plain", "OK"); });
+
+  // Generic serial passthrough — lets fleet controllers (RIFT, ComCentre)
+  // send any command string straight to the onboard Arduino over UART,
+  // beyond the hardcoded M:*/UV:* commands above.
+  server.on("/serial", []() {
+    if (!server.hasArg("cmd")) { server.send(400, "text/plain", "missing 'cmd'"); return; }
+    Serial.println(server.arg("cmd"));
+    server.send(200, "text/plain", "OK");
+  });
+
+  // Text message board (see MESSAGE_LOG_SIZE above).
+  server.on("/message", HTTP_POST, []() {
+    if (!server.hasArg("text")) { server.send(400, "text/plain", "missing 'text'"); return; }
+    messageLog[messageLogHead] = server.arg("text");
+    messageLogHead = (messageLogHead + 1) % MESSAGE_LOG_SIZE;
+    if (messageLogCount < MESSAGE_LOG_SIZE) messageLogCount++;
+    server.send(200, "text/plain", "OK");
+  });
+  server.on("/messages", HTTP_GET, []() {
+    String json = "[";
+    for (int i = 0; i < messageLogCount; i++) {
+      int idx = (messageLogHead - messageLogCount + i + MESSAGE_LOG_SIZE) % MESSAGE_LOG_SIZE;
+      if (i > 0) json += ",";
+      json += "\"" + jsonEscape(messageLog[idx]) + "\"";
+    }
+    json += "]";
+    server.send(200, "application/json", json);
+  });
 
   // Calibration
   server.on("/setcal", []() {
