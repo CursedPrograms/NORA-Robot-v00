@@ -1,0 +1,102 @@
+Up: Move Vehicle Forward:
+Protocol=NEC Address=0x0, Command=0x6, Repeat, Gap=39300us, Duration=11650us
+ -> Command HEX: 0x6
+
+Left: Strafe/Turn Left
+Protocol=NEC Address=0x0, Command=0x47, Raw-Data=0xB847FF00, 32 bits, LSB first, Gap=427950us, Duration=67100us
+ -> Command HEX: 0x47
+
+Down: Move Vehicle Backward:
+Protocol=NEC Address=0x0, Command=0x44, Raw-Data=0xBB44FF00, 32 bits, LSB first, Gap=299650us, Duration=67150us
+ -> Command HEX: 0x44
+
+Right: Strafe/Turn Right
+rotocol=NEC Address=0x0, Command=0x40, Raw-Data=0xBF40FF00, 32 bits, LSB first, Gap=289150us, Duration=67100us
+ -> Command HEX: 0x40
+
+Enter: Switches Between Strafing and Turning on the Left and Right Buttons
+Protocol=NEC Address=0x0, Command=0x7, Raw-Data=0xF807FF00, 32 bits, LSB first, Gap=593500us, Duration=67150us
+ -> Command HEX: 0x7
+
+1:
+Protocol=NEC Address=0x0, Command=0x9, Repeat, Gap=39250us, Duration=11700us
+ -> Command HEX: 0x9
+
+2:
+Protocol=NEC Address=0x0, Command=0x1D, Repeat, Gap=39300us, Duration=11650us
+ -> Command HEX: 0x1D
+
+3:
+Protocol=NEC Address=0x0, Command=0x1F, Repeat, Gap=39350us, Duration=11650us
+ -> Command HEX: 0x1F
+
+4:
+Protocol=NEC Address=0x0, Command=0xD, Repeat, Gap=39300us, Duration=11650us
+ -> Command HEX: 0xD
+
+5:
+Protocol=NEC Address=0x0, Command=0x19, Repeat, Gap=39450us, Duration=11550us
+ -> Command HEX: 0x19
+
+6:
+Protocol=NEC Address=0x0, Command=0x1B, Repeat, Gap=39350us, Duration=11650us
+ -> Command HEX: 0x1B
+7:
+Protocol=NEC Address=0x0, Command=0x11, Raw-Data=0xEE11FF00, 32 bits, LSB first, Gap=3276750us, Duration=67100us
+ -> Command HEX: 0x11
+
+8:
+Protocol=NEC Address=0x0, Command=0x15, Repeat, Gap=39300us, Duration=11700us
+ -> Command HEX: 0x15
+
+9:
+Protocol=NEC Address=0x0, Command=0x17, Repeat, Gap=39300us, Duration=11650us
+ -> Command HEX: 0x17
+
+0(Labelled as 10+): 
+Protocol=NEC Address=0x0, Command=0x59, Raw-Data=0xA659FF00, 32 bits, LSB first, Gap=3276750us, Duration=67000us
+ -> Command HEX: 0x59
+
+Mute: 
+Protocol=NEC Address=0x0, Command=0x56, Repeat, Gap=39350us, Duration=11650us
+ -> Command HEX: 0x56
+
+Volume Up: 
+Protocol=NEC Address=0x0, Command=0x3, Repeat, Gap=39250us, Duration=11750us
+ -> Command HEX: 0x3
+
+Volume Down: 
+Protocol=NEC Address=0x0, Command=0x2, Raw-Data=0xFD02FF00, 32 bits, LSB first, Gap=2087650us, Duration=67100us
+ -> Command HEX: 0x2
+
+Repeat Song:
+Protocol=NEC Address=0x0, Command=0x53, Repeat, Gap=39350us, Duration=11650us
+ -> Command HEX: 0x53
+
+Play/Pause Music:
+
+Protocol=NEC Address=0x0, Command=0xF, Raw-Data=0xF00FFF00, 32 bits, LSB first, Gap=2137550us, Duration=67100us
+ -> Command HEX: 0xF
+
+Stop Music: 
+Protocol=NEC Address=0x0, Command=0x42, Raw-Data=0xBD42FF00, 32 bits, LSB first, Gap=1251000us, Duration=67050us
+ -> Command HEX: 0x42
+
+Next Track: 
+Protocol=NEC Address=0x0, Command=0x1A, Repeat, Gap=39350us, Duration=11650us
+ -> Command HEX: 0x1A
+
+Previous Track:
+Protocol=NEC Address=0x0, Command=0xE, Raw-Data=0xF10EFF00, 32 bits, LSB first, Gap=1989300us, Duration=67050us
+ -> Command HEX: 0xE
+
+FFWD: 
+Protocol=NEC Address=0x0, Command=0x1E, Raw-Data=0xE11EFF00, 32 bits, LSB first, Gap=683700us, Duration=67100us
+ -> Command HEX: 0x1E
+
+REWIND:
+Protocol=NEC Address=0x0, Command=0xA, Raw-Data=0xF50AFF00, 32 bits, LSB first, Gap=1133250us, Duration=67050us
+ -> Command HEX: 0xA
+
+
+
