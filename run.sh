@@ -3,20 +3,17 @@
 # NORA launcher — website or pygame controller
 #
 # Usage:
-#   ./nora.sh            interactive menu
-#   ./nora.sh web        open the web dashboard in the browser
-#   ./nora.sh app        run the pygame controller (main.py)
-#
-# Put this file in the same folder as main.py, then once:
-#   chmod +x nora.sh
+#   ./run.sh            interactive menu
+#   ./run.sh web        open the web dashboard in the browser
+#   ./run.sh app        run the pygame controller (scripts/controller.py,
+#                       via scripts/controller.sh which owns its own venv)
 # =============================================================
 
 set -u
 
 NORA_URL="http://192.168.4.1:5002"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV="$SCRIPT_DIR/venv"
-MAIN="$SCRIPT_DIR/main.py"
+CONTROLLER_LAUNCHER="$SCRIPT_DIR/scripts/controller.sh"
 
 launch_web() {
     echo "Opening $NORA_URL ..."
@@ -25,26 +22,11 @@ launch_web() {
 }
 
 launch_app() {
-    # Create the venv on first run if it doesn't exist yet
-    if [ ! -f "$VENV/bin/activate" ]; then
-        echo "No venv found — creating one and installing dependencies..."
-        python3 -m venv "$VENV" || {
-            echo "venv creation failed. Try: sudo apt install python3-venv python3-full"
-            exit 1
-        }
-        "$VENV/bin/pip" install --quiet --upgrade pip
-        "$VENV/bin/pip" install pygame requests pyserial || {
-            echo "dependency install failed"; exit 1;
-        }
-        echo "venv ready."
-    fi
-
-    if [ ! -f "$MAIN" ]; then
-        echo "main.py not found next to this script ($MAIN)"
+    if [ ! -f "$CONTROLLER_LAUNCHER" ]; then
+        echo "not found: $CONTROLLER_LAUNCHER"
         exit 1
     fi
-
-    exec "$VENV/bin/python" "$MAIN"
+    exec bash "$CONTROLLER_LAUNCHER"
 }
 
 case "${1:-}" in

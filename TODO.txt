@@ -1,0 +1,17 @@
+Implement wheel lock/unlock on the remote - It requires no Password like the webpage.
+
+Implement speed control on the remote
+
+Replace the AHT10 sensor and connect it to 3.3V (physical/hardware modification, not code)
+
+Add voice response
+
+Add a buzzer
+
+Use the light sensor to turn on the UV light when dark (and off when bright)
+
+Improve obstacle avoidance (currently inaccurate; the sides scrape walls). It should stop and strafe away if a left/right sensor gets too close to a wall. The stopping distance is also to small it runs into walls.
+
+Use the IR transmitter to steer MILA
+
+If not actively transmitting IR commands, continuously broadcast a signal telling other robots: "Hi, I am here"

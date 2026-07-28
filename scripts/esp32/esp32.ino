@@ -115,6 +115,7 @@ float humidity = -1;
 #define IR_1          0x9
 #define IR_2          0x1D
 #define IR_3          0x1F
+#define IR_4          0xD
 #define IR_MUTE       0x56
 #define IR_VOL_UP     0x3
 #define IR_VOL_DOWN   0x2
@@ -281,7 +282,10 @@ void setup() {
   WiFi.softAP(ap_ssid, ap_password);
   SerialBT.begin("NORA");   // Bluetooth device name shown when pairing
   IrReceiver.begin(IR_RECEIVE_PIN, DISABLE_LED_FEEDBACK);
-  IrSender.begin(IR_SEND_PIN);
+  // IrSender.begin(IR_SEND_PIN) is deliberately not called yet -- on the
+  // ESP32, IRremote's send and receive sides can contend for the same
+  // timer/PWM resource, and there's no transmit behavior wired up to need
+  // it yet anyway. Uncomment once you actually build out the TX feature.
 
   Wire.begin();
   aht10Ok = aht.begin();   // if missing, tempC/humidity just stay -1
@@ -311,6 +315,7 @@ void setup() {
   server.on("/modeManual", []() { driveMode = MODE_MANUAL; stopMotors(); server.send(200, "text/plain", "OK"); });
   server.on("/modeAuto",   []() { driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; autoStuckSinceMs = 0; autoEscaping = false; server.send(200, "text/plain", "OK"); });
   server.on("/modeLine",   []() { driveMode = MODE_LINE;   stopMotors(); lineLostSinceMs = 0; server.send(200, "text/plain", "OK"); });
+  server.on("/modeIR",     []() { driveMode = MODE_IR;     stopMotors(); irLastDriveMs = 0; server.send(200, "text/plain", "OK"); });
 
   // UV
   server.on("/uvOff",   []() { uvMode = 0; server.send(200, "text/plain", "OK"); });
@@ -411,6 +416,7 @@ void setup() {
                   ",\"lt\":"   + String(lightPct)    +
                   ",\"snd\":"  + String(soundRecent ? 1 : 0) +
                   ",\"lock\":" + String(motorLocked ? 1 : 0) +
+                  ",\"spd\":"  + String(speedPct)    +
                   ",\"temp\":" + String(tempC, 1)    +
                   ",\"hum\":"  + String(humidity, 1) + "}";
     server.send(200, "application/json", json);
@@ -601,7 +607,8 @@ void handleIR() {
           // ---- modes (always allowed) ----
           case IR_1: driveMode = MODE_MANUAL; stopMotors(); break;
           case IR_2: driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; autoStuckSinceMs = 0; autoEscaping = false; break;
-          case IR_3: driveMode = MODE_IR;     stopMotors(); irLastDriveMs = 0; break;
+          case IR_3: driveMode = MODE_LINE;   stopMotors(); lineLostSinceMs = 0; break;
+          case IR_4: driveMode = MODE_IR;     stopMotors(); irLastDriveMs = 0; break;
 
           // ---- music, forwarded to the Arduino (always allowed) ----
           case IR_PLAY_PAUSE: Serial.println("M:PLAY");   break;
@@ -1196,13 +1203,23 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
   function cmd(c) { fetch(c).catch(() => {}); }
 
-  function setMode(mode) {
+  const modeNames = ['Manual', 'Auto', 'Line', 'IR'];
+
+  // Applies a mode to the UI only -- used both when we initiate a change
+  // (setMode) and when we're just reflecting one that happened elsewhere
+  // (IR remote, pygame controller) via the /sensors poll.
+  function applyModeUI(mode) {
     currentMode = mode;
-    cmd('/mode' + mode);
-    ['Manual','Auto','Line'].forEach(m =>
-      document.getElementById('btn' + m).classList.toggle('active', m === mode)
-    );
+    ['Manual','Auto','Line'].forEach(m => {
+      const btn = document.getElementById('btn' + m);
+      if (btn) btn.classList.toggle('active', m === mode);
+    });
     updateDpadEnabled();
+  }
+
+  function setMode(mode) {
+    cmd('/mode' + mode);
+    applyModeUI(mode);
   }
 
   function updateDpadEnabled() {
@@ -1250,6 +1267,17 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     document.getElementById('speedVal').textContent = slider.value + '%';
     clearTimeout(speedTimer);
     speedTimer = setTimeout(() => cmd('/setspeed?v=' + slider.value), 200);
+  }
+
+  const speedPresets = [25, 50, 75, 100];
+  let speedIndex = 3;   // matches the slider's hardcoded default of 100%
+
+  function cycleSpeed() {
+    speedIndex = (speedIndex + 1) % speedPresets.length;
+    const v = speedPresets[speedIndex];
+    document.getElementById('speedSlider').value = v;
+    document.getElementById('speedVal').textContent = v + '%';
+    cmd('/setspeed?v=' + v);
   }
 
   function setCal(slider, idx, labelId) {
@@ -1309,14 +1337,32 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
   document.addEventListener('mouseup',  () => stopCmd());
   document.addEventListener('touchend', () => stopCmd());
 
-  const keyMap = { 'ArrowUp':'/fw','ArrowDown':'/bw','ArrowLeft':'/left','ArrowRight':'/right','a':'/turnL','d':'/turnR',' ':'/stop' };
+  const keyMap = {
+    'arrowup':'/fw', 'arrowdown':'/bw', 'arrowleft':'/left', 'arrowright':'/right',
+    'w':'/fw', 's':'/bw', 'a':'/left', 'd':'/right',
+    'q':'/turnL', 'e':'/turnR'
+  };
   document.addEventListener('keydown', e => {
-    const c = keyMap[e.key];
+    const k = e.key.toLowerCase();
+
+    // ---- always-allowed controls: mirror the physical remote, where
+    // music/UV/mode switching work no matter which drive mode is active ----
+    if (k === ' ') { e.preventDefault(); cmd('/muPlay'); return; }
+    if (k === 'm') { e.preventDefault(); cmd('/muNext'); return; }
+    if (k === 'u') { e.preventDefault(); cycleUV();      return; }
+    if (k === 'x') { e.preventDefault(); cycleSpeed();   return; }
+    if (k === '1') { e.preventDefault(); setMode('Manual'); return; }
+    if (k === '2') { e.preventDefault(); setMode('Auto');   return; }
+    if (k === '3') { e.preventDefault(); setMode('Line');   return; }
+    if (k === '4') { e.preventDefault(); setMode('IR');     return; }
+
+    // ---- driving: Manual mode only, same rule as the D-pad ----
+    const c = keyMap[k];
     if (!c || currentMode !== 'Manual') return;
     e.preventDefault();
-    c === '/stop' ? cmd('/stop') : startCmd(c);
+    startCmd(c);
   });
-  document.addEventListener('keyup', e => { if (keyMap[e.key] && keyMap[e.key] !== '/stop') stopCmd(); });
+  document.addEventListener('keyup', e => { if (keyMap[e.key.toLowerCase()]) stopCmd(); });
 
   function updateSensor(boxId, barId, spanId, value) {
     const box = document.getElementById(boxId);
@@ -1355,7 +1401,22 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       dirBox.forEach(id => document.getElementById(id).classList.remove('travel'));
       if (d.mode === 1) document.getElementById(dirBox[d.dir]).classList.add('travel');
 
+      // Reflect state that may have changed from elsewhere -- the IR remote,
+      // the pygame controller -- so this page never shows a stale mode/UV/
+      // speed after someone else drove the change. Only *apply* the UI here,
+      // never re-send the command (that would just echo it back out).
+      const srvMode = modeNames[d.mode];
+      if (srvMode && srvMode !== currentMode) applyModeUI(srvMode);
+
       if (d.uv !== uvState) { uvState = d.uv; applyUV(); }
+
+      if (typeof d.spd === 'number' && d.spd !== speedPresets[speedIndex]) {
+        const nearest = speedPresets.reduce((best, v, i) =>
+          Math.abs(v - d.spd) < Math.abs(speedPresets[best] - d.spd) ? i : best, 0);
+        speedIndex = nearest;
+        document.getElementById('speedSlider').value = d.spd;
+        document.getElementById('speedVal').textContent = d.spd + '%';
+      }
 
       const lockState = d.lock === 1;
       if (lockState !== motorLocked) { motorLocked = lockState; applyLock(); }

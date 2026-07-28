@@ -20,12 +20,22 @@ USAGE
 INSTALL
   pip install pygame requests            (pyserial too, only for Bluetooth)
 
-CONTROLS
-  Arrow keys  drive (fwd/back/strafe)     A / D   turn left / right
-  Space       stop                        1/2/3   manual / auto / line mode
-  U           cycle UV                    M/N/P/X music play-pause/next/prev/stop
-  +/-         speed up / down             Esc     quit
+CONTROLS (mirrors the web dashboard exactly -- same keys, same meanings)
+  W/S, arrows  forward / backward          A/D, arrows  strafe left / right
+  Q / E        turn left / right           Space        music play/pause
+  M            next track                  X            cycle speed 25/50/75/100%
+  U            cycle UV                    1/2/3/4      manual / auto / line / remote mode
+  +/-          speed nudge (BT only --      Esc          quit
+               BT has no absolute "set speed", just a relative step)
   Everything is also clickable with the mouse.
+
+  Mode 4 (remote/IR) hands driving to the physical IR receiver, same as
+  pressing "4" on it -- it isn't reachable over Bluetooth (the BT single-char
+  protocol has no code for it), so key '4' is a no-op there.
+
+  Whichever surface changes mode/UV/speed/lock -- this app, the web page, or
+  the IR remote -- the others pick it up on their next /sensors poll instead
+  of showing a stale state.
 """
 
 import argparse
@@ -487,8 +497,8 @@ def main():
         if cal and "spd" in cal:
             init_speed = max(0, min(100, int(cal["spd"])))
         sensors = link.get_json("/sensors")
-        mode_names = ["Manual", "Auto", "Line"]
-        if sensors and int(sensors.get("mode", 0)) in (0, 1, 2):
+        mode_names = ["Manual", "Auto", "Line", "IR"]
+        if sensors and int(sensors.get("mode", 0)) in (0, 1, 2, 3):
             init_mode = mode_names[int(sensors["mode"])]
         if sensors and "lock" in sensors:
             init_locked = int(sensors["lock"]) == 1
@@ -597,8 +607,19 @@ def main():
     key_drive = {
         pygame.K_UP: "fw", pygame.K_DOWN: "bw",
         pygame.K_LEFT: "left", pygame.K_RIGHT: "right",
-        pygame.K_a: "turnL", pygame.K_d: "turnR",
+        pygame.K_w: "fw", pygame.K_s: "bw",
+        pygame.K_a: "left", pygame.K_d: "right",
+        pygame.K_q: "turnL", pygame.K_e: "turnR",
     }
+
+    SPEED_PRESETS = [25, 50, 75, 100]
+
+    def cycle_speed():
+        nonlocal speed
+        idx = min(range(len(SPEED_PRESETS)), key=lambda i: abs(SPEED_PRESETS[i] - speed))
+        idx = (idx + 1) % len(SPEED_PRESETS)
+        speed = SPEED_PRESETS[idx]
+        link.speed(speed)   # no-op over BT (no absolute-set command there)
 
     slider = pygame.Rect(70, 515, W - 140, 8)
     dragging_slider = False
@@ -644,15 +665,15 @@ def main():
                 elif ev.key in key_drive and mode == "Manual":
                     start_drive(key_drive[ev.key])
                 elif ev.key == pygame.K_SPACE:
-                    stop_drive(); link.stop()
+                    link.music("Play")   # play/pause toggle, matches the website
                 elif ev.key == pygame.K_1: set_mode("Manual")
                 elif ev.key == pygame.K_2: set_mode("Auto")
                 elif ev.key == pygame.K_3: set_mode("Line")
+                elif ev.key == pygame.K_4:
+                    if not is_bt: set_mode("IR")   # no BT command for this mode
                 elif ev.key == pygame.K_u: cycle_uv()
-                elif ev.key == pygame.K_m: link.music("Play")
-                elif ev.key == pygame.K_n: link.music("Next")
-                elif ev.key == pygame.K_p: link.music("Prev")
-                elif ev.key == pygame.K_x: link.music("Stop")
+                elif ev.key == pygame.K_m: link.music("Next")
+                elif ev.key == pygame.K_x: cycle_speed()
                 elif ev.key in (pygame.K_PLUS, pygame.K_EQUALS, pygame.K_KP_PLUS):
                     speed = min(100, speed + 10)
                     link.nudge_speed(True) if is_bt else link.speed(speed)
@@ -695,8 +716,30 @@ def main():
         screen.fill(BG)
         t = link.telemetry()
 
-        # another client (e.g. the web dashboard) may have locked/unlocked
-        # the motors — stay in sync instead of showing a stale state
+        # another client (web dashboard, IR remote) may have changed mode,
+        # UV, speed, or the motor lock -- reflect it here instead of showing
+        # a stale state. Only update local UI state, never re-send the
+        # command (that would just echo whatever we just received).
+        mode_names_all = ("Manual", "Auto", "Line", "IR")
+        if "mode" in t:
+            try:
+                srv_mode = mode_names_all[int(t["mode"])]
+            except (ValueError, IndexError):
+                srv_mode = mode
+            if srv_mode != mode:
+                mode = srv_mode
+                for b, name in zip(mode_btns, ("Manual", "Auto", "Line")):
+                    b.active = (name == mode)
+                update_dpad_enabled()
+
+        if "uv" in t and int(t["uv"]) != uv_state:
+            uv_state = int(t["uv"])
+            uv_btn.label = ["UV OFF", "UV ON", "UV BLINK"][uv_state]
+            uv_btn.active = uv_state != 0
+
+        if not is_bt and "spd" in t and int(t["spd"]) != speed:
+            speed = int(t["spd"])
+
         if "lock" in t and (int(t["lock"]) == 1) != motor_locked and not pw_prompt:
             motor_locked = int(t["lock"]) == 1
             lock_btn.label = "MOTOR LOCK: ON" if motor_locked else "MOTOR LOCK: OFF"
@@ -788,7 +831,7 @@ def main():
                              border_radius=6)
 
         hint = f_sml.render(
-            "arrows drive · A/D turn · space stop · U uv · M/N/P/X music · +/- speed",
+            "WASD/arrows drive · Q/E turn · space play/pause · M next · X speed · U uv · 1-4 mode",
             True, DIM)
         screen.blit(hint, hint.get_rect(centerx=W // 2, y=H - 28))
 
