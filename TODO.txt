@@ -15,3 +15,5 @@ Improve obstacle avoidance (currently inaccurate; the sides scrape walls). It sh
 Use the IR transmitter to steer MILA, KIDA01, WHIP
 
 If not actively transmitting IR commands, continuously broadcast a signal telling other robots: "Hi, I am here"
+
+WiFi/Windows only — no Bluetooth serial transport (that needs separate serial-port code per platform), and no Linux/macOS HTTP backend (would need libcurl instead of WinHTTP). Both are legitimate follow-ups if you want them later.

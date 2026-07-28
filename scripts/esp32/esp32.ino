@@ -266,6 +266,18 @@ bool          uvBlinkState = false;
 unsigned long lastUVBlink  = 0;
 
 // =====================
+// BUZZER NOTIFICATIONS
+// =====================
+// The buzzer itself is on the Arduino (pin 10), but the state it needs to
+// react to (mode/UV/lock/speed) all lives here -- so every place that
+// changes one of those calls the matching notify*() right after, and it
+// travels over the same serial link as the M:*/V:* commands.
+void notifyMode()  { Serial.print("BZ:MODE:");  Serial.println((int)driveMode); }
+void notifyUv()    { Serial.print("BZ:UV:");    Serial.println(uvMode); }
+void notifyLock()  { Serial.print("BZ:LOCK:");  Serial.println(motorLocked ? 1 : 0); }
+void notifySpeed() { Serial.print("BZ:SPD:");   Serial.println(speedPct); }
+
+// =====================
 // SETUP
 // =====================
 void setup() {
@@ -312,25 +324,27 @@ void setup() {
   server.on("/stop",  []() { if (driveMode == MODE_MANUAL) stopMotors();   server.send(200, "text/plain", "OK"); });
 
   // Mode switching
-  server.on("/modeManual", []() { driveMode = MODE_MANUAL; stopMotors(); server.send(200, "text/plain", "OK"); });
-  server.on("/modeAuto",   []() { driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; autoStuckSinceMs = 0; autoEscaping = false; server.send(200, "text/plain", "OK"); });
-  server.on("/modeLine",   []() { driveMode = MODE_LINE;   stopMotors(); lineLostSinceMs = 0; server.send(200, "text/plain", "OK"); });
-  server.on("/modeIR",     []() { driveMode = MODE_IR;     stopMotors(); irLastDriveMs = 0; server.send(200, "text/plain", "OK"); });
+  server.on("/modeManual", []() { driveMode = MODE_MANUAL; stopMotors(); notifyMode(); server.send(200, "text/plain", "OK"); });
+  server.on("/modeAuto",   []() { driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; autoStuckSinceMs = 0; autoEscaping = false; notifyMode(); server.send(200, "text/plain", "OK"); });
+  server.on("/modeLine",   []() { driveMode = MODE_LINE;   stopMotors(); lineLostSinceMs = 0; notifyMode(); server.send(200, "text/plain", "OK"); });
+  server.on("/modeIR",     []() { driveMode = MODE_IR;     stopMotors(); irLastDriveMs = 0; notifyMode(); server.send(200, "text/plain", "OK"); });
 
   // UV
-  server.on("/uvOff",   []() { uvMode = 0; server.send(200, "text/plain", "OK"); });
-  server.on("/uvOn",    []() { uvMode = 1; server.send(200, "text/plain", "OK"); });
-  server.on("/uvBlink", []() { uvMode = 2; server.send(200, "text/plain", "OK"); });
+  server.on("/uvOff",   []() { uvMode = 0; notifyUv(); server.send(200, "text/plain", "OK"); });
+  server.on("/uvOn",    []() { uvMode = 1; notifyUv(); server.send(200, "text/plain", "OK"); });
+  server.on("/uvBlink", []() { uvMode = 2; notifyUv(); server.send(200, "text/plain", "OK"); });
 
   // Motor lock — lock is free, unlock needs the password
   server.on("/motorlockOn", []() {
     motorLocked = true;
     stopMotors();
+    notifyLock();
     server.send(200, "text/plain", "OK");
   });
   server.on("/motorlockOff", []() {
     if (server.hasArg("pw") && server.arg("pw") == MOTOR_PASSWORD) {
       motorLocked = false;
+      notifyLock();
       server.send(200, "text/plain", "OK");
     } else {
       server.send(403, "text/plain", "DENIED");
@@ -380,7 +394,7 @@ void setup() {
     server.send(200, "text/plain", "OK");
   });
   server.on("/setspeed", []() {
-    if (server.hasArg("v")) speedPct = constrain(server.arg("v").toInt(), 0, 100);
+    if (server.hasArg("v")) { speedPct = constrain(server.arg("v").toInt(), 0, 100); notifySpeed(); }
     server.send(200, "text/plain", "OK");
   });
   server.on("/savecal", []() {
@@ -503,6 +517,7 @@ void handleBluetooth() {
       if (btPwBuffer.length() >= 4) {
         if (btPwBuffer == MOTOR_PASSWORD) {
           motorLocked = false;
+          notifyLock();
           SerialBT.println("motorlock: off");
         } else {
           SerialBT.println("motorlock: denied");
@@ -524,13 +539,14 @@ void handleBluetooth() {
       case 'S': case 's': if (driveMode == MODE_MANUAL) stopMotors();   break;
 
       // ---- modes ----
-      case '1': driveMode = MODE_MANUAL; stopMotors(); SerialBT.println("mode: manual"); break;
-      case '2': driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; autoStuckSinceMs = 0; autoEscaping = false; SerialBT.println("mode: auto"); break;
-      case '3': driveMode = MODE_LINE;   stopMotors(); lineLostSinceMs = 0; SerialBT.println("mode: line"); break;
+      case '1': driveMode = MODE_MANUAL; stopMotors(); notifyMode(); SerialBT.println("mode: manual"); break;
+      case '2': driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; autoStuckSinceMs = 0; autoEscaping = false; notifyMode(); SerialBT.println("mode: auto"); break;
+      case '3': driveMode = MODE_LINE;   stopMotors(); lineLostSinceMs = 0; notifyMode(); SerialBT.println("mode: line"); break;
 
       // ---- UV ----
       case 'U': case 'u':
         uvMode = (uvMode + 1) % 3;
+        notifyUv();
         SerialBT.println(uvMode == 0 ? "uv: off" : uvMode == 1 ? "uv: on" : "uv: blink");
         break;
 
@@ -538,6 +554,7 @@ void handleBluetooth() {
       case 'K': case 'k':
         motorLocked = true;
         stopMotors();
+        notifyLock();
         SerialBT.println("motorlock: on");
         break;
       case 'V': case 'v':
@@ -570,8 +587,8 @@ void handleBluetooth() {
         break;
 
       // ---- speed nudge ----
-      case '+': speedPct = constrain(speedPct + 10, 10, 100); SerialBT.print("speed: "); SerialBT.println(speedPct); break;
-      case '-': speedPct = constrain(speedPct - 10, 10, 100); SerialBT.print("speed: "); SerialBT.println(speedPct); break;
+      case '+': speedPct = constrain(speedPct + 10, 10, 100); notifySpeed(); SerialBT.print("speed: "); SerialBT.println(speedPct); break;
+      case '-': speedPct = constrain(speedPct - 10, 10, 100); notifySpeed(); SerialBT.print("speed: "); SerialBT.println(speedPct); break;
     }
   }
 }
@@ -605,10 +622,10 @@ void handleIR() {
           case IR_ENTER: if (driveMode == MODE_IR) irStrafe = !irStrafe; break;
 
           // ---- modes (always allowed) ----
-          case IR_1: driveMode = MODE_MANUAL; stopMotors(); break;
-          case IR_2: driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; autoStuckSinceMs = 0; autoEscaping = false; break;
-          case IR_3: driveMode = MODE_LINE;   stopMotors(); lineLostSinceMs = 0; break;
-          case IR_4: driveMode = MODE_IR;     stopMotors(); irLastDriveMs = 0; break;
+          case IR_1: driveMode = MODE_MANUAL; stopMotors(); notifyMode(); break;
+          case IR_2: driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; autoStuckSinceMs = 0; autoEscaping = false; notifyMode(); break;
+          case IR_3: driveMode = MODE_LINE;   stopMotors(); lineLostSinceMs = 0; notifyMode(); break;
+          case IR_4: driveMode = MODE_IR;     stopMotors(); irLastDriveMs = 0; notifyMode(); break;
 
           // ---- music, forwarded to the Arduino (always allowed) ----
           case IR_PLAY_PAUSE: Serial.println("M:PLAY");   break;
@@ -1439,12 +1456,49 @@ void handleRoot() {
 }
 
 // =====================
+// MANUAL/REMOTE CRASH PREVENTION
+// =====================
+// Auto and Line already have their own obstacle handling (see
+// AutonomousMode()/LineFollowerMode()), so this only applies when a human
+// is actually driving -- Manual (website/app/BT) or Remote (physical IR).
+// Turning in place is left alone: there's no sensor that maps to "the
+// direction you're rotating into", and blocking it could trap someone
+// against a wall with no way to reorient.
+#define MANUAL_STOP_CM 15.0
+
+bool blockedInDir(int dir) {
+  if (driveMode != MODE_MANUAL && driveMode != MODE_IR) return false;
+  float d;
+  switch (dir) {
+    case DIR_FRONT: d = front_cm; break;
+    case DIR_RIGHT: d = right_cm; break;
+    case DIR_BACK:  d = back_cm;  break;
+    case DIR_LEFT:  d = left_cm;  break;
+    default: return false;
+  }
+  return (d > 0 && d < MANUAL_STOP_CM);   // d <= 0 means "no valid reading" -- don't
+                                          // block on sensor noise, only a real reading
+}
+
+// =====================
 // MOVEMENT FUNCTIONS
 // =====================
-void moveForward(int scale)  { setMotor(ENA1,M1_1,M1_2,LOW,HIGH,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,LOW,HIGH,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,HIGH,LOW,cal[2],scale); setMotor(ENB2,M4_1,M4_2,HIGH,LOW,cal[3],scale); }
-void moveBackward(int scale) { setMotor(ENA1,M1_1,M1_2,HIGH,LOW,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,HIGH,LOW,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,LOW,HIGH,cal[2],scale); setMotor(ENB2,M4_1,M4_2,LOW,HIGH,cal[3],scale); }
-void strafeLeft(int scale)   { setMotor(ENA1,M1_1,M1_2,HIGH,LOW,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,LOW,HIGH,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,HIGH,LOW,cal[2],scale); setMotor(ENB2,M4_1,M4_2,LOW,HIGH,cal[3],scale); }
-void strafeRight(int scale)  { setMotor(ENA1,M1_1,M1_2,LOW,HIGH,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,HIGH,LOW,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,LOW,HIGH,cal[2],scale); setMotor(ENB2,M4_1,M4_2,HIGH,LOW,cal[3],scale); }
+void moveForward(int scale) {
+  if (blockedInDir(DIR_FRONT)) { stopMotors(); Serial.println("BZ:DENIED"); return; }
+  setMotor(ENA1,M1_1,M1_2,LOW,HIGH,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,LOW,HIGH,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,HIGH,LOW,cal[2],scale); setMotor(ENB2,M4_1,M4_2,HIGH,LOW,cal[3],scale);
+}
+void moveBackward(int scale) {
+  if (blockedInDir(DIR_BACK)) { stopMotors(); Serial.println("BZ:DENIED"); return; }
+  setMotor(ENA1,M1_1,M1_2,HIGH,LOW,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,HIGH,LOW,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,LOW,HIGH,cal[2],scale); setMotor(ENB2,M4_1,M4_2,LOW,HIGH,cal[3],scale);
+}
+void strafeLeft(int scale) {
+  if (blockedInDir(DIR_LEFT)) { stopMotors(); Serial.println("BZ:DENIED"); return; }
+  setMotor(ENA1,M1_1,M1_2,HIGH,LOW,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,LOW,HIGH,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,HIGH,LOW,cal[2],scale); setMotor(ENB2,M4_1,M4_2,LOW,HIGH,cal[3],scale);
+}
+void strafeRight(int scale) {
+  if (blockedInDir(DIR_RIGHT)) { stopMotors(); Serial.println("BZ:DENIED"); return; }
+  setMotor(ENA1,M1_1,M1_2,LOW,HIGH,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,HIGH,LOW,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,LOW,HIGH,cal[2],scale); setMotor(ENB2,M4_1,M4_2,HIGH,LOW,cal[3],scale);
+}
 void turnLeft(int scale)     { setMotor(ENA1,M1_1,M1_2,HIGH,LOW,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,LOW,HIGH,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,LOW,HIGH,cal[2],scale); setMotor(ENB2,M4_1,M4_2,HIGH,LOW,cal[3],scale); }
 void turnRight(int scale)    { setMotor(ENA1,M1_1,M1_2,LOW,HIGH,cal[0],scale);  setMotor(ENA2,M2_1,M2_2,HIGH,LOW,cal[1],scale);  setMotor(ENB1,M3_1,M3_2,HIGH,LOW,cal[2],scale); setMotor(ENB2,M4_1,M4_2,LOW,HIGH,cal[3],scale); }
 

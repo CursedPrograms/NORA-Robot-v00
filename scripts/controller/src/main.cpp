@@ -23,9 +23,12 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <map>
@@ -519,6 +522,12 @@ int main(int argc, char* argv[]) {
     Uint32 last_repeat = 0;
 
     std::vector<Button> buttons;
+    // add_button() hands back a pointer into this vector (&buttons.back()).
+    // A push_back that triggers reallocation would silently invalidate every
+    // pointer taken so far (uv_btn, lock_btn, mode_btns, dpad_btns,
+    // stop_btn), so reserve enough up front that it never reallocates --
+    // 16 buttons are added below, 32 is a comfortable margin.
+    buttons.reserve(32);
     auto add_button = [&](SDL_Rect rect, std::string label, std::function<void()> cb,
                            bool active = false, bool enabled = true) -> Button* {
         buttons.push_back(Button{rect, std::move(label), std::move(cb), active, false, enabled});
