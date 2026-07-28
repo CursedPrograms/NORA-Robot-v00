@@ -12,6 +12,6 @@ Use the light sensor to turn on the UV light when dark (and off when bright)
 
 Improve obstacle avoidance (currently inaccurate; the sides scrape walls). It should stop and strafe away if a left/right sensor gets too close to a wall. The stopping distance is also to small it runs into walls.
 
-Use the IR transmitter to steer MILA
+Use the IR transmitter to steer MILA, KIDA01, WHIP
 
 If not actively transmitting IR commands, continuously broadcast a signal telling other robots: "Hi, I am here"
