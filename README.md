@@ -22,6 +22,8 @@
 
 # NORA: Nomadic Omnidirectional Reactive Automaton
 
+https://github.com/madsci1016/Sparkfun-MP3-Player-Shield-Arduino-Library
+
 ## Related Projects
 
 - [KIDA-Robot-v01](https://github.com/CursedPrograms/KIDA-Robot-v01)
@@ -104,6 +106,7 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 - WiFi.h
 - WebServer.h
 - Preferences.h
+- IRremote.h
 
 ---
 
@@ -160,6 +163,21 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 </details>
 
 <details>
+<summary><b>ESP32 IR Remote Wiring</b></summary>
+
+#### IR Receiver
+| Component | Pin |
+| :--- | :--- |
+| **Data (OUT)** | `GPIO 32` |
+| **VCC** | `3.3V` (not 5V) |
+| **GND** | `GND` |
+
+Button layout matches [`ir_mapping.txt`](ir_mapping.txt). `GPIO 21`/`GPIO 22` are
+still free on the board for an IR **transmitter** if one gets added later —
+nothing sends on them yet.
+</details>
+
+<details>
 <summary><b>ESP32 ↔ Arduino Serial Link</b></summary>
 
 Bidirectional UART at 9600 baud. Both devices must share a common GND.
@@ -205,9 +223,19 @@ To connect via [RIFT](https://github.com/CursedPrograms/RIFT), connect to the `N
 ### Drive Modes
 | Mode | Description |
 | :--- | :--- |
-| **Manual** | D-pad remote control via web UI |
+| **Manual** ("Website Control") | D-pad remote control via web UI / Bluetooth |
 | **Auto** | Omnidirectional obstacle avoidance using ultrasonic sensors |
 | **Line** | Line following using the 3-channel IR sensor |
+| **IR Remote** | D-pad + Enter on the physical IR remote drive directly |
+
+Switch modes from the IR remote with `1` (Manual/Website Control), `2` (Auto),
+`3` (IR Remote). Outside IR Remote mode the remote's D-pad and Enter are
+inert — they never fight the website/BT driver or the autonomous/line logic.
+Music transport, volume, mute, and the mode keys themselves always work no
+matter which drive mode is active. In IR Remote mode, holding a D-pad
+direction keeps driving; letting go stops it (there's no key-up event over
+IR, so the firmware treats a ~250ms gap with no repeat as "released").
+`Enter` swaps Left/Right between strafing and turning in place.
 
 </details>
 

@@ -2,6 +2,9 @@
 #include <WebServer.h>
 #include <Preferences.h>
 #include "BluetoothSerial.h"
+#include <IRremote.hpp>
+#include <Wire.h>
+#include <Adafruit_AHTX0.h>
 
 // =====================
 // BLUETOOTH
@@ -68,13 +71,14 @@ void setMotor(int ena, int pin1, int pin2, int s1, int s2, int speed, int scale 
 #define UV_PIN 4
 
 // =====================
-// LIGHT + SOUND SENSORS (on ESP32)
+// LIGHT + SOUND SENSORS
 // =====================
-// Photoresistor: 3.3V -> LDR -> GPIO36 -> 10k resistor -> GND
-// Sound board:   VCC to 3.3V (NOT 5V!), DO -> GPIO33
-#define LDR_PIN   36   // input-only, ADC1 (works with WiFi on)
-#define SOUND_PIN 33
-
+// Both live on the Arduino now (A5 / pin 5) -- it has to poll the sound
+// sensor tightly between ultrasonic pings to catch a clap reliably, which
+// its loop is naturally suited for. It forwards smoothed light% and a
+// latched sound-event flag over serial (LT / SND fields), parsed below in
+// parseSensorLine(). The clap-count/double-clap timing itself still runs
+// here, just fed by that flag instead of a local digitalRead edge.
 int  lightPct        = 0;      // 0 = dark, 100 = bright
 bool soundRecent     = false;  // true if a sound was heard in the last 500ms
 unsigned long lastSoundMs   = 0;
@@ -82,9 +86,55 @@ unsigned long firstClapMs   = 0;
 int  clapCount       = 0;
 
 // =====================
+// TEMPERATURE / HUMIDITY (AHT10, I2C)
+// =====================
+// Wire.begin() with no args defaults to SDA=21 SCL=22 on the ESP32.
+Adafruit_AHTX0 aht;
+bool  aht10Ok  = false;   // if begin() failed, skip reads and leave -1 (matches ultrasonic's "no reading" convention -- NAN would serialize as invalid JSON and silently freeze the whole HUD)
+float tempC    = -1;
+float humidity = -1;
+
+// =====================
+// IR RECEIVER (on ESP32)
+// =====================
+// Cheap NEC remote (see ir_mapping.txt for the full button dump). Data pin
+// only — GPIO32 was the next free, non-strapping pin left on the board;
+// power the receiver from 3.3V, not 5V, so its output never exceeds the
+// ESP32's logic level.
+// IR transmitter LED lives on GPIO33 (freed up now that the sound sensor
+// moved to the Arduino). Pin + library are initialized below; nothing
+// sends on it yet, this only wires up the transmitter for later use.
+#define IR_RECEIVE_PIN 32
+#define IR_SEND_PIN    33
+
+#define IR_UP         0x6
+#define IR_LEFT       0x47
+#define IR_DOWN       0x44
+#define IR_RIGHT      0x40
+#define IR_ENTER      0x7
+#define IR_1          0x9
+#define IR_2          0x1D
+#define IR_3          0x1F
+#define IR_MUTE       0x56
+#define IR_VOL_UP     0x3
+#define IR_VOL_DOWN   0x2
+#define IR_REPEAT     0x53
+#define IR_PLAY_PAUSE 0xF
+#define IR_STOP       0x42
+#define IR_NEXT       0x1A
+#define IR_PREV       0xE
+#define IR_FFWD       0x1E
+#define IR_REWIND     0xA
+
+#define IR_DRIVE_TIMEOUT_MS 250   // stop if no drive repeat arrives within this long (no key-up event over IR)
+
+bool          irStrafe     = true;  // Enter toggles Left/Right between strafe (true) and turn (false)
+unsigned long irLastDriveMs = 0;
+
+// =====================
 // DRIVE MODE
 // =====================
-enum DriveMode { MODE_MANUAL, MODE_AUTO, MODE_LINE };
+enum DriveMode { MODE_MANUAL, MODE_AUTO, MODE_LINE, MODE_IR };
 DriveMode driveMode = MODE_MANUAL;
 
 // =====================
@@ -230,6 +280,11 @@ void setup() {
 
   WiFi.softAP(ap_ssid, ap_password);
   SerialBT.begin("NORA");   // Bluetooth device name shown when pairing
+  IrReceiver.begin(IR_RECEIVE_PIN, DISABLE_LED_FEEDBACK);
+  IrSender.begin(IR_SEND_PIN);
+
+  Wire.begin();
+  aht10Ok = aht.begin();   // if missing, tempC/humidity just stay -1
 
   pinMode(ENA1, OUTPUT); pinMode(M1_1, OUTPUT); pinMode(M1_2, OUTPUT);
   pinMode(ENA2, OUTPUT); pinMode(M2_1, OUTPUT); pinMode(M2_2, OUTPUT);
@@ -242,9 +297,6 @@ void setup() {
 
   pinMode(UV_PIN, OUTPUT);
   digitalWrite(UV_PIN, LOW);
-
-  pinMode(SOUND_PIN, INPUT);
-  // LDR_PIN (36) is input-only; analogRead needs no pinMode
 
   // Manual movement
   server.on("/fw",    []() { if (driveMode == MODE_MANUAL) moveForward();  server.send(200, "text/plain", "OK"); });
@@ -358,7 +410,9 @@ void setup() {
                   ",\"ms\":"   + String(musicState)  +
                   ",\"lt\":"   + String(lightPct)    +
                   ",\"snd\":"  + String(soundRecent ? 1 : 0) +
-                  ",\"lock\":" + String(motorLocked ? 1 : 0) + "}";
+                  ",\"lock\":" + String(motorLocked ? 1 : 0) +
+                  ",\"temp\":" + String(tempC, 1)    +
+                  ",\"hum\":"  + String(humidity, 1) + "}";
     server.send(200, "application/json", json);
   });
 
@@ -375,6 +429,7 @@ void loop() {
   server.handleClient();
   fleetServer.handleClient();
   handleBluetooth();
+  handleIR();
   readSerialSensors();
 
   lf_l = digitalRead(LF_LEFT);
@@ -383,36 +438,26 @@ void loop() {
 
   unsigned long now = millis();
 
-  // ---- Light level (smoothed) ----
-  static unsigned long lastLdrMs = 0;
-  if (now - lastLdrMs >= 200) {
-    int raw = analogRead(LDR_PIN);              // 0-4095
-    int pct = map(raw, 0, 4095, 0, 100);
-    lightPct = (lightPct * 3 + pct) / 4;        // simple smoothing
-    lastLdrMs = now;
+  // IR has no key-up event — a held button just keeps resending, and
+  // releasing it simply stops the resends. So if we're driving off the IR
+  // remote and haven't seen a repeat in a while, treat that as "released".
+  if (driveMode == MODE_IR && irLastDriveMs != 0 && now - irLastDriveMs > IR_DRIVE_TIMEOUT_MS) {
+    stopMotors();
+    irLastDriveMs = 0;
   }
 
-  // ---- Sound detection + double-clap toggles UV ----
-  // Most cheap boards pulse HIGH on sound; if yours idles HIGH and
-  // pulses LOW, flip the comparison below to == LOW.
-  static bool lastSoundLevel = false;
-  bool soundLevel = (digitalRead(SOUND_PIN) == HIGH);
-  if (soundLevel && !lastSoundLevel && now - lastSoundMs > 120) {  // rising edge, debounced
-    lastSoundMs = now;
-
-    if (clapCount == 0 || now - firstClapMs > 800) {
-      clapCount = 1;
-      firstClapMs = now;
-    } else {
-      clapCount++;
-    }
-    if (clapCount >= 2) {           // double clap within 0.8s
-      uvMode = (uvMode == 0) ? 1 : 0;
-      clapCount = 0;
-    }
-  }
-  lastSoundLevel = soundLevel;
+  // ---- Sound recency decay (the event itself is latched in parseSensorLine) ----
   soundRecent = (now - lastSoundMs) < 500;
+
+  // ---- Temperature / humidity (AHT10) ----
+  static unsigned long lastAhtMs = 0;
+  if (aht10Ok && now - lastAhtMs >= 500) {
+    sensors_event_t humEvt, tempEvt;
+    aht.getEvent(&humEvt, &tempEvt);
+    tempC     = tempEvt.temperature;
+    humidity  = humEvt.relative_humidity;
+    lastAhtMs = now;
+  }
 
   if (uvMode == 0) {
     digitalWrite(UV_PIN, LOW);
@@ -502,7 +547,9 @@ void handleBluetooth() {
         SerialBT.print(" state:"); SerialBT.print(musicState);
         SerialBT.print(" light:"); SerialBT.print(lightPct);
         SerialBT.print("% sound:"); SerialBT.print(soundRecent ? "yes" : "no");
-        SerialBT.print(" lock:");   SerialBT.println(motorLocked ? 1 : 0);
+        SerialBT.print(" temp:");   SerialBT.print(tempC, 1);
+        SerialBT.print("C hum:");   SerialBT.print(humidity, 1);
+        SerialBT.print("% lock:");  SerialBT.println(motorLocked ? 1 : 0);
         break;
 
       // ---- speed nudge ----
@@ -510,6 +557,60 @@ void handleBluetooth() {
       case '-': speedPct = constrain(speedPct - 10, 10, 100); SerialBT.print("speed: "); SerialBT.println(speedPct); break;
     }
   }
+}
+
+// =====================
+// IR REMOTE COMMANDS
+// =====================
+// Driving (D-pad + Enter) only takes effect in MODE_IR — in every other
+// mode those buttons are inert so they can't fight the website/BT driver
+// or the autonomous/line logic. Mode switching, music, and volume/mute
+// always work no matter which drive mode is active.
+void handleIR() {
+  if (!IrReceiver.decode()) return;
+
+  if (IrReceiver.decodedIRData.protocol != UNKNOWN) {
+    bool    isRepeat = IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT;
+    uint8_t cmd      = IrReceiver.decodedIRData.command;
+
+    switch (cmd) {
+      // ---- driving: IR remote mode only. Repeats (button held) keep it
+      // moving; the timeout watchdog in loop() stops it on release. ----
+      case IR_UP:    if (driveMode == MODE_IR) { moveForward();  irLastDriveMs = millis(); } break;
+      case IR_DOWN:  if (driveMode == MODE_IR) { moveBackward(); irLastDriveMs = millis(); } break;
+      case IR_LEFT:  if (driveMode == MODE_IR) { irStrafe ? strafeLeft()  : turnLeft();  irLastDriveMs = millis(); } break;
+      case IR_RIGHT: if (driveMode == MODE_IR) { irStrafe ? strafeRight() : turnRight(); irLastDriveMs = millis(); } break;
+
+      default:
+        if (isRepeat) break;   // everything below only fires on the initial press
+
+        switch (cmd) {
+          case IR_ENTER: if (driveMode == MODE_IR) irStrafe = !irStrafe; break;
+
+          // ---- modes (always allowed) ----
+          case IR_1: driveMode = MODE_MANUAL; stopMotors(); break;
+          case IR_2: driveMode = MODE_AUTO;   stopMotors(); autoState = AUTO_COOLDOWN; autoCooldown = 0; autoStuckSinceMs = 0; autoEscaping = false; break;
+          case IR_3: driveMode = MODE_IR;     stopMotors(); irLastDriveMs = 0; break;
+
+          // ---- music, forwarded to the Arduino (always allowed) ----
+          case IR_PLAY_PAUSE: Serial.println("M:PLAY");   break;
+          case IR_STOP:       Serial.println("M:STOP");   break;
+          case IR_NEXT:       Serial.println("M:NEXT");   break;
+          case IR_PREV:       Serial.println("M:PREV");   break;
+          case IR_FFWD:       Serial.println("M:NEXT");   break;   // no seek hardware — treat as skip
+          case IR_REWIND:     Serial.println("M:PREV");   break;
+          case IR_REPEAT:     Serial.println("M:REPEAT"); break;
+
+          // ---- volume, forwarded to the Arduino (always allowed) ----
+          case IR_VOL_UP:   Serial.println("V:UP");   break;
+          case IR_VOL_DOWN: Serial.println("V:DOWN"); break;
+          case IR_MUTE:     Serial.println("V:MUTE"); break;
+        }
+        break;
+    }
+  }
+
+  IrReceiver.resume();
 }
 
 // =====================
@@ -546,6 +647,26 @@ void parseSensorLine(String line) {
   float ms = extractFloat("MS");
   if (mt >= 0) musicTrack = (int)mt;
   if (ms >= 0) musicState = (int)ms;
+
+  float lt = extractFloat("LT");
+  if (lt >= 0) lightPct = (int)lt;
+
+  // ---- Sound event: edge-detected + debounced on the Arduino already,
+  // we just run the double-clap timing off of this latched flag ----
+  if (extractFloat("SND") == 1) {
+    unsigned long now = millis();
+    lastSoundMs = now;
+    if (clapCount == 0 || now - firstClapMs > 800) {
+      clapCount   = 1;
+      firstClapMs = now;
+    } else {
+      clapCount++;
+    }
+    if (clapCount >= 2) {           // double clap within 0.8s
+      uvMode = (uvMode == 0) ? 1 : 0;
+      clapCount = 0;
+    }
+  }
 }
 
 // =====================
@@ -865,6 +986,9 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     }
     .lf-dot.on { background: var(--accent); border-color: var(--accent); }
 
+    #envRow { display: flex; gap: 6px; align-items: center; font-size: 0.8rem; color: var(--text-dim); }
+    #envRow span { color: var(--accent); font-weight: bold; }
+
     #modeRow { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
     .mode-btn {
       padding: 10px 18px; border: 2px solid var(--border); border-radius: var(--radius);
@@ -989,6 +1113,11 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     <div class="lf-dot" id="lfR"></div>
     &nbsp;&nbsp;Light: <span id="lightVal" style="color:var(--accent);font-weight:bold">--%</span>
     &nbsp;&nbsp;<div class="lf-dot" id="sndDot" title="sound"></div>
+  </div>
+
+  <div id="envRow">
+    Temp: <span id="tempVal">--</span>&deg;C
+    &nbsp;&nbsp;Humidity: <span id="humVal">--</span>%
   </div>
 
   <div id="modeRow">
@@ -1204,6 +1333,9 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
       document.getElementById('lightVal').textContent = d.lt + '%';
       document.getElementById('sndDot').classList.toggle('on', d.snd === 1);
+
+      document.getElementById('tempVal').textContent = d.temp >= 0 ? d.temp : '--';
+      document.getElementById('humVal').textContent  = d.hum  >= 0 ? d.hum  : '--';
 
       dirBox.forEach(id => document.getElementById(id).classList.remove('travel'));
       if (d.mode === 1) document.getElementById(dirBox[d.dir]).classList.add('travel');
