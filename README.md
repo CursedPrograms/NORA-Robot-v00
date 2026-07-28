@@ -24,6 +24,10 @@
 
 https://github.com/madsci1016/Sparkfun-MP3-Player-Shield-Arduino-Library
 
+In the Arduino IDE, go to Tools → Partition Scheme and pick one with a bigger app partition — either:
+- "Huge APP (3MB No OTA/1MB SPIFFS)", or
+- "Minimal SPIFFS (1.9MB APP with OTA)"
+
 ## Related Projects
 
 - [KIDA-Robot-v01](https://github.com/CursedPrograms/KIDA-Robot-v01)

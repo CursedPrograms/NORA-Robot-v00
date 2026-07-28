@@ -449,6 +449,17 @@ void loop() {
   // ---- Sound recency decay (the event itself is latched in parseSensorLine) ----
   soundRecent = (now - lastSoundMs) < 500;
 
+  // ---- Single clap (confirmed once the 0.8s double-clap window passes with
+  // no second clap) -> play music. Can't fire this the instant a clap is
+  // seen, or it'd also fire on the first half of every double clap.
+  // Guarded on musicState so it only starts/resumes -- M:PLAY toggles to
+  // pause if sent while already playing, which isn't what "1 clap = play"
+  // should do. ----
+  if (clapCount == 1 && now - firstClapMs > 800) {
+    if (musicState != 1) Serial.println("M:PLAY");   // 1 = already playing
+    clapCount = 0;
+  }
+
   // ---- Temperature / humidity (AHT10) ----
   static unsigned long lastAhtMs = 0;
   if (aht10Ok && now - lastAhtMs >= 500) {
@@ -652,7 +663,11 @@ void parseSensorLine(String line) {
   if (lt >= 0) lightPct = (int)lt;
 
   // ---- Sound event: edge-detected + debounced on the Arduino already,
-  // we just run the double-clap timing off of this latched flag ----
+  // we just run the clap-count timing off of this latched flag.
+  // 1 clap  -> play music  (fired from loop() once the window times out
+  //            with no second clap -- see there for why)
+  // 2 claps within 0.8s -> stop music (fires immediately, no need to wait:
+  //            seeing the 2nd clap already confirms it wasn't a single) ----
   if (extractFloat("SND") == 1) {
     unsigned long now = millis();
     lastSoundMs = now;
@@ -662,8 +677,8 @@ void parseSensorLine(String line) {
     } else {
       clapCount++;
     }
-    if (clapCount >= 2) {           // double clap within 0.8s
-      uvMode = (uvMode == 0) ? 1 : 0;
+    if (clapCount >= 2) {
+      Serial.println("M:STOP");
       clapCount = 0;
     }
   }
