@@ -18,6 +18,10 @@
 //   K=lock motors (always allowed)
 //   V + 4 chars=unlock motors (password, e.g. "V1234")
 //   +=speed up  -=speed down  ?=print sensor + music status
+//   H + "name:cap1,cap2" + newline = fleet heartbeat/register (mirrors the
+//     HTTP /register the fleet registry below takes over WiFi — lets RIFT
+//     or DREAM heartbeat over Bluetooth instead when their dashboards are
+//     switched to that transport). Replies "OK" or "ERR".
 BluetoothSerial SerialBT;
 
 // =====================
@@ -79,6 +83,11 @@ void setMotor(int ena, int pin1, int pin2, int s1, int s2, int speed, int scale 
 // latched sound-event flag over serial (LT / SND fields), parsed below in
 // parseSensorLine(). The clap-count/double-clap timing itself still runs
 // here, just fed by that flag instead of a local digitalRead edge.
+//
+// CLAP_BOOT_GRACE_MS: ignore that flag for the first few seconds after
+// boot -- the Arduino's own startup chime plays right into the sound
+// sensor and reads as a clap otherwise (see parseSensorLine()).
+#define CLAP_BOOT_GRACE_MS 5000
 int  lightPct        = 0;      // 0 = dark, 100 = bright
 bool soundRecent     = false;  // true if a sound was heard in the last 500ms
 unsigned long lastSoundMs   = 0;
@@ -179,6 +188,12 @@ String jsonEscape(const String &in) {
 bool   motorLocked   = true;
 bool   btAwaitingPw  = false;
 String btPwBuffer    = "";
+
+// Fleet heartbeat over Bluetooth ('H' below) — same buffer-until-newline
+// shape as the password flow above, just terminated by '\n' instead of a
+// fixed length since the payload ("name:cap1,cap2") is variable-length.
+bool   btAwaitingFleet = false;
+String btFleetBuffer   = "";
 
 // =====================
 // AUTONOMOUS STATE
@@ -510,8 +525,11 @@ void loop() {
 void handleBluetooth() {
   while (SerialBT.available()) {
     char c = SerialBT.read();
-    if (c == '\n' || c == '\r' || c == ' ') continue;
 
+    // These two "awaiting" branches consume their own terminators (a fixed
+    // length for the password, '\n' for the fleet line), so they have to
+    // see raw bytes before the generic whitespace skip below strips them —
+    // that skip only applies once neither branch is mid-capture.
     if (btAwaitingPw) {
       btPwBuffer += c;
       if (btPwBuffer.length() >= 4) {
@@ -527,6 +545,28 @@ void handleBluetooth() {
       }
       continue;
     }
+
+    if (btAwaitingFleet) {
+      if (c == '\n') {
+        int sep = btFleetBuffer.indexOf(':');
+        String name = (sep == -1) ? btFleetBuffer : btFleetBuffer.substring(0, sep);
+        String caps = (sep == -1) ? ""             : btFleetBuffer.substring(sep + 1);
+        name.trim();
+        if (name.length()) {
+          fleetRegister(name, "fleet_manager", caps, IPAddress((uint32_t)0));
+          SerialBT.println("OK");
+        } else {
+          SerialBT.println("ERR");
+        }
+        btAwaitingFleet = false;
+        btFleetBuffer   = "";
+      } else if (c != '\r') {
+        btFleetBuffer += c;
+      }
+      continue;
+    }
+
+    if (c == '\n' || c == '\r' || c == ' ') continue;
 
     switch (c) {
       // ---- driving (manual mode only, same rule as the web pad) ----
@@ -560,6 +600,12 @@ void handleBluetooth() {
       case 'V': case 'v':
         btAwaitingPw = true;
         btPwBuffer   = "";
+        break;
+
+      // ---- fleet heartbeat/register: 'H' arms it, next line is "name:caps" ----
+      case 'H': case 'h':
+        btAwaitingFleet = true;
+        btFleetBuffer   = "";
         break;
 
       // ---- music (forwarded to the Arduino) ----
@@ -691,7 +737,14 @@ void parseSensorLine(String line) {
   // 1 clap  -> play music  (fired from loop() once the window times out
   //            with no second clap -- see there for why)
   // 2 claps within 0.8s -> stop music (fires immediately, no need to wait:
-  //            seeing the 2nd clap already confirms it wasn't a single) ----
+  //            seeing the 2nd clap already confirms it wasn't a single)
+  //
+  // Ignored for the first CLAP_BOOT_GRACE_MS after boot: the Arduino's
+  // startup chime (track000.mp3) plays right into the same board's sound
+  // sensor, which reads its own speaker as a "clap" and would otherwise
+  // fire M:PLAY the moment the chime ends -- music starting on its own
+  // right after the boot sound, with nobody actually clapping. ----
+  if (millis() < CLAP_BOOT_GRACE_MS) return;
   if (extractFloat("SND") == 1) {
     unsigned long now = millis();
     lastSoundMs = now;
@@ -951,6 +1004,8 @@ void setupFleetServer() {
     if (authorityExpiresMs == 0) {
       for (int i = 0; i < FLEET_MAX; i++) {
         if (!fleet[i].used) continue;
+        // "0.0.0.0" here means this entry heartbeated over Bluetooth (the
+        // 'H' command above), not WiFi, so there's no real IP to report.
         json += ",{\"name\":\"" + fleet[i].name + "\",\"type\":\"" + fleet[i].type +
                 "\",\"ip\":\"" + fleet[i].ip.toString() +
                 "\",\"capabilities\":" + fleetCapsToJsonArray(fleet[i].capabilities) + "}";
