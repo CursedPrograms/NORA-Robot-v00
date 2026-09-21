@@ -20,7 +20,17 @@
 
 ---
 
-# NORA: Nomadic Omnidirectional Reactive Automaton
+# NORA 
+## Nomadic Omnidirectional Reactive Automaton
+
+- Robot Type: Mecanum
+
+---
+
+### Software
+- [Arduino IDE](https://docs.arduino.cc/software/ide/)
+
+---
 
 https://github.com/madsci1016/Sparkfun-MP3-Player-Shield-Arduino-Library
 
