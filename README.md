@@ -286,3 +286,9 @@ IR, so the firmware treats a ~250ms gap with no repeat as "released").
         alt="CursedEntertainment Logo" style="width:250px;">
 </a>
 </div>
+<br>
+<div align="center">
+  <a href="https://github.com/SynthWomb" target="_blank">
+    <img src="https://github.com/SynthWomb/synth.womb/blob/main/logos/synthwomb07.png" alt="SynthWomb" style="width:200px;"/>
+  </a>
+</div>
