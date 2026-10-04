@@ -65,6 +65,7 @@ NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest 
 - [x] **Self-hosted AP:** no router needed; she is the fleet's network and registry (port `5000`).
 - [x] **Reactive safety:** four HC-SR04 sensors (front, back, left, right) block drive commands that would hit something, with a buzzer warning.
 - [x] **Four drive modes:** Manual (web / Bluetooth), Auto (obstacle avoidance), Line following, IR Remote.
+- [x] **IDA link:** drives [IDA](https://github.com/CursedPrograms/IDA-Robot-v00) through her IR transmitter, from the web page, the Python controller or Bluetooth.
 - [x] **UV light:** off, on or blinking.
 - [x] **Music:** an MP3 player with play, next, previous, stop, repeat and volume. A single clap starts the music.
 - [x] **Environment:** temperature and humidity (AHT10), and ambient light.
@@ -139,7 +140,7 @@ NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest 
 | **Line follower L / M / R** | `GPIO 34` / `GPIO 35` / `GPIO 39` |
 | **UV LED** | `GPIO 4` |
 | **IR receiver OUT** | `GPIO 32` (power it from **3.3 V**, not 5 V) |
-| **IR transmitter LED** | `GPIO 33` (wired up, nothing sends on it yet) |
+| **IR transmitter LED** | `GPIO 33` (sends the IDA link) |
 | **AHT10 SDA / SCL** | `GPIO 21` / `GPIO 22` |
 | **UNO link** | `RX0` / `TX0` (UART0, 9600 baud) |
 
@@ -230,6 +231,16 @@ pip install -r requirements.txt
 python scripts/controller.py                 # WiFi, NORA at 192.168.4.1:5002
 python scripts/controller.py --bt COM7       # Bluetooth serial instead
 ```
+
+### IDA link
+NORA drives [IDA](https://github.com/CursedPrograms/IDA-Robot-v00) through her IR transmitter (GPIO 33). The frames are Samsung-format IR at address `0x0DA1` with commands `0x48`–`0x4F`, so no other robot or remote reacts to them, and NORA ignores her own frames on her receiver. Drive commands repeat every 150 ms while held, with `stop` on release; IDA stops by herself if the link goes quiet for 500 ms.
+
+| | Forward / Back / Left / Right | Stop | Obstacle mode | Manual (WASD) | Speed |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Web page** (IDA panel) | `I` `K` `J` `L` or the buttons | buttons | button | button | button |
+| **Python controller** (IDA column) | `I` `K` `J` `L` or the buttons | release | `O` | `P` | `Y` |
+| **HTTP** | `/ida?c=fw` `bw` `left` `right` | `stop` | `auto` | `manual` | `speed` |
+| **Bluetooth** | `IF` `IB` `IL` `IR` | `IS` | `IO` | `IW` | `IX` |
 
 </details>
 

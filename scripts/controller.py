@@ -143,6 +143,9 @@ class WifiLink:
         else:
             self._pool.submit(self._get, f"/motorlockOff?pw={pw}")
 
+    def ida(self, c):          # IDA link: 'fw' 'bw' 'left' 'right' 'stop' 'auto' 'manual' 'speed'
+        self._pool.submit(self._get, "/ida?c=" + c)
+
 
 class BtLink:
     """Talks over a Bluetooth serial port using the single-char protocol."""
@@ -243,6 +246,12 @@ class BtLink:
     def motorlock(self, locked, pw=None):
         self._send("K" if locked else "V" + (pw or ""))
 
+    IDA = {"fw": "F", "bw": "B", "left": "L", "right": "R",
+           "stop": "S", "auto": "O", "manual": "W", "speed": "X"}
+
+    def ida(self, c):          # IDA link over BT: 'I' + one letter
+        self._send("I" + self.IDA[c])
+
 
 # ----------------------------------------------------------------------------
 # UI
@@ -262,7 +271,26 @@ GOOD    = (70, 215, 100)    # --green  #46d764
 ACCENT_BG = (18, 26, 41)    # accent blended ~12% into BG, for "active" fills
 GOOD_BG   = (18, 46, 30)    # good blended into BG, for the CONNECT button
 
-W, H = 420, 870   # +90 over the base layout to fit the fleet panel
+W, H = 420, 870   # NORA's column (+90 over the base layout to fit the fleet panel)
+IDA_W = 230        # the IDA link column to its right
+WIN_W = W + IDA_W
+IDA_COL = (232, 160, 90)   # IDA's avatar amber, so her panel reads as hers
+
+IMAGES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "images")
+
+
+def round_avatar(path, size):
+    """The avatar as a circular surface, or None if it can't be loaded."""
+    try:
+        img = pygame.transform.smoothscale(pygame.image.load(path).convert(), (size, size))
+    except (pygame.error, OSError):
+        return None
+    mask = pygame.Surface((size, size), pygame.SRCALPHA)
+    pygame.draw.circle(mask, (255, 255, 255, 255), (size // 2, size // 2), size // 2)
+    out = pygame.Surface((size, size), pygame.SRCALPHA)
+    out.blit(img, (0, 0))
+    out.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+    return out
 
 
 class Button:
@@ -458,7 +486,7 @@ def main():
     args = ap.parse_args()
 
     pygame.init()
-    screen = pygame.display.set_mode((W, H))
+    screen = pygame.display.set_mode((WIN_W, H))
     pygame.display.set_caption("NORA Control")
     try:  # window icon: the robot's avatar
         pygame.display.set_icon(pygame.image.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "images", "nora-icon.png")))
@@ -617,6 +645,44 @@ def main():
         pygame.K_q: "turnL", pygame.K_e: "turnR",
     }
 
+    # ---- IDA link panel: drives IDA through NORA's IR transmitter ----
+    nora_face = round_avatar(os.path.join(IMAGES, "nora_avatar.jpg"), 52)
+    ida_face = round_avatar(os.path.join(IMAGES, "ida_avatar.jpg"), 96)
+    ida_active = None          # held IDA drive command
+    ida_last = 0
+    ida_status = "ready"
+
+    def ida_send(c):
+        nonlocal ida_status
+        link.ida(c)
+        ida_status = c
+
+    def ida_start(c):
+        nonlocal ida_active, ida_last
+        ida_active = c
+        ida_last = time.time()
+        ida_send(c)
+
+    def ida_stop():
+        nonlocal ida_active
+        if ida_active:
+            ida_active = None
+            ida_send("stop")
+
+    ix = W + 12                      # IDA column left edge
+    icx = W + IDA_W // 2             # IDA column centre
+    add((ix, 215, 100, 34), "MANUAL", lambda: ida_send("manual"))
+    add((ix + 106, 215, 100, 34), "AUTO", lambda: ida_send("auto"))
+    add((ix, 255, 206, 34), "SPEED", lambda: ida_send("speed"))
+    ibs, igap, ipy = 60, 6, 395      # IDA pad: button size, gap, centre y
+    ida_btns = {}
+    for c, (dx, dy), lbl in (("fw", (0, -1), "^"), ("bw", (0, 1), "v"),
+                             ("left", (-1, 0), "<"), ("right", (1, 0), ">")):
+        ida_btns[c] = add((icx - ibs // 2 + dx * (ibs + igap), ipy - ibs // 2 + dy * (ibs + igap), ibs, ibs),
+                          lbl, lambda c=c: ida_start(c))
+    add((icx - ibs // 2, ipy - ibs // 2, ibs, ibs), "STOP", lambda: (ida_stop(), ida_send("stop")))
+    key_ida = {pygame.K_i: "fw", pygame.K_k: "bw", pygame.K_j: "left", pygame.K_l: "right"}
+
     SPEED_PRESETS = [25, 50, 75, 100]
 
     def cycle_speed():
@@ -669,6 +735,11 @@ def main():
                     running = False
                 elif ev.key in key_drive and mode == "Manual":
                     start_drive(key_drive[ev.key])
+                elif ev.key in key_ida:
+                    ida_start(key_ida[ev.key])
+                elif ev.key == pygame.K_o: ida_send("auto")
+                elif ev.key == pygame.K_p: ida_send("manual")
+                elif ev.key == pygame.K_y: ida_send("speed")
                 elif ev.key == pygame.K_SPACE:
                     link.music("Play")   # play/pause toggle, matches the website
                 elif ev.key == pygame.K_1: set_mode("Manual")
@@ -689,6 +760,8 @@ def main():
             elif ev.type == pygame.KEYUP:
                 if ev.key in key_drive and active_drive == key_drive[ev.key]:
                     stop_drive()
+                if ev.key in key_ida and ida_active == key_ida[ev.key]:
+                    ida_stop()
 
             elif ev.type == pygame.MOUSEBUTTONDOWN:
                 if pw_prompt:
@@ -708,6 +781,7 @@ def main():
                 # releasing anywhere stops the held drive command (like the website)
                 if active_drive:
                     stop_drive()
+                ida_stop()
 
             elif ev.type == pygame.MOUSEMOTION and dragging_slider:
                 set_speed_from_mouse(ev.pos[0])
@@ -716,6 +790,9 @@ def main():
         if active_drive and mode == "Manual" and now - last_repeat > 0.15:
             link.drive(active_drive)
             last_repeat = now
+        if ida_active and now - ida_last > 0.15:
+            link.ida(ida_active)
+            ida_last = now
 
         # ---- draw ----
         screen.fill(BG)
@@ -753,6 +830,26 @@ def main():
 
         title = f_big.render("NORA", True, ACCENT)
         screen.blit(title, title.get_rect(centerx=W // 2, y=14))
+        if nora_face:
+            screen.blit(nora_face, (16, 10))
+            pygame.draw.circle(screen, ACCENT, (16 + 26, 10 + 26), 27, 2)
+
+        # IDA link column
+        col = pygame.Rect(W + 2, 10, IDA_W - 12, H - 52)
+        pygame.draw.rect(screen, PANEL, col, border_radius=6)
+        pygame.draw.rect(screen, BORDER, col, 1, border_radius=6)
+        if ida_face:
+            screen.blit(ida_face, (icx - 48, 24))
+            pygame.draw.circle(screen, IDA_COL, (icx, 24 + 48), 49, 2)
+        lbl = f_big.render("IDA", True, IDA_COL)
+        screen.blit(lbl, lbl.get_rect(centerx=icx, y=128))
+        lbl = f_sml.render("via NORA's IR link", True, DIM)
+        screen.blit(lbl, lbl.get_rect(centerx=icx, y=160))
+        lbl = f_sml.render("last: " + ida_status, True, TEXT)
+        screen.blit(lbl, lbl.get_rect(centerx=icx, y=184))
+        for i, line in enumerate(("I J K L  drive", "O auto · P manual", "Y speed")):
+            lbl = f_sml.render(line, True, DIM)
+            screen.blit(lbl, lbl.get_rect(centerx=icx, y=500 + i * 18))
         sub = f_sml.render(transport + ("   connected" if link.ok else "   OFFLINE"),
                            True, GOOD if link.ok else CRIT)
         screen.blit(sub, sub.get_rect(centerx=W // 2, y=46))
@@ -834,14 +931,16 @@ def main():
         if active_drive:
             pygame.draw.rect(screen, ACCENT, dpad_btns[active_drive].rect, 3,
                              border_radius=6)
+        if ida_active:
+            pygame.draw.rect(screen, IDA_COL, ida_btns[ida_active].rect, 3, border_radius=6)
 
         hint = f_sml.render(
-            "WASD/arrows drive · Q/E turn · space play/pause · M next · X speed · U uv · 1-4 mode",
+            "WASD drive · Q/E turn · space play · M next · X speed · U uv · 1-4 mode",
             True, DIM)
-        screen.blit(hint, hint.get_rect(centerx=W // 2, y=H - 28))
+        screen.blit(hint, hint.get_rect(centerx=WIN_W // 2, y=H - 28))
 
         if pw_prompt:
-            overlay = pygame.Surface((W, H), pygame.SRCALPHA)
+            overlay = pygame.Surface((WIN_W, H), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 180))
             screen.blit(overlay, (0, 0))
             box = pygame.Rect(40, H // 2 - 70, W - 80, 140)

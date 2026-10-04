@@ -111,10 +111,31 @@ float humidity = -1;
 // power the receiver from 3.3V, not 5V, so its output never exceeds the
 // ESP32's logic level.
 // IR transmitter LED lives on GPIO33 (freed up now that the sound sensor
-// moved to the Arduino). Pin + library are initialized below; nothing
-// sends on it yet, this only wires up the transmitter for later use.
+// moved to the Arduino). It carries the IDA link below.
 #define IR_RECEIVE_PIN 32
 #define IR_SEND_PIN    33
+
+// =====================
+// IDA LINK (NORA -> IDA over IR)
+// =====================
+// NORA relays drive commands to IDA, which only has an IR receiver. The link
+// has its own protocol so nothing else in the fleet reacts to it: Samsung-
+// format frames (38 kHz) with address IDA_LINK_ADDRESS, while every remote in
+// the fleet is NEC (NORA) or Sony-style (IDA, MILA, WHIP). The command codes
+// 0x48-0x4F are unused by all of those remotes too. IDA's side is
+// runLinkCommand() in IDA-Robot-v00/scripts/IDA/IDA.ino;
+// keep the two tables in step.
+// Driving commands must be re-sent every ~150 ms while held (the web page,
+// Python controller and BT 'I' prefix all do); IDA stops ~500 ms after they stop.
+#define IDA_LINK_ADDRESS 0x0DA1
+#define LINK_FORWARD   0x48
+#define LINK_BACKWARD  0x49
+#define LINK_LEFT      0x4A
+#define LINK_RIGHT     0x4B
+#define LINK_STOP      0x4C
+#define LINK_OBSTACLE  0x4D
+#define LINK_MANUAL    0x4E
+#define LINK_SPEED     0x4F
 
 #define IR_UP         0x6
 #define IR_LEFT       0x47
@@ -193,6 +214,7 @@ String btPwBuffer    = "";
 // shape as the password flow above, just terminated by '\n' instead of a
 // fixed length since the payload ("name:cap1,cap2") is variable-length.
 bool   btAwaitingFleet = false;
+bool   btAwaitingIda   = false;   // 'I' prefix: the next char is an IDA link command
 String btFleetBuffer   = "";
 
 // =====================
@@ -309,10 +331,11 @@ void setup() {
   WiFi.softAP(ap_ssid, ap_password);
   SerialBT.begin("NORA");   // Bluetooth device name shown when pairing
   IrReceiver.begin(IR_RECEIVE_PIN, DISABLE_LED_FEEDBACK);
-  // IrSender.begin(IR_SEND_PIN) is deliberately not called yet -- on the
-  // ESP32, IRremote's send and receive sides can contend for the same
-  // timer/PWM resource, and there's no transmit behavior wired up to need
-  // it yet anyway. Uncomment once you actually build out the TX feature.
+  // The transmitter makes its carrier with an LEDC channel and the receiver
+  // samples on a hardware timer, so they don't contend on the ESP32.
+  // idaSend() still pauses the receiver for each frame so NORA doesn't
+  // decode her own transmission.
+  IrSender.begin(IR_SEND_PIN);
 
   Wire.begin();
   aht10Ok = aht.begin();   // if missing, tempC/humidity just stay -1
@@ -451,6 +474,13 @@ void setup() {
     server.send(200, "application/json", json);
   });
 
+  // ---- IDA link: drive IDA through the IR transmitter (works in every mode,
+  // and isn't affected by NORA's motor lock -- they're IDA's motors) ----
+  server.on("/ida", []() {
+    if (server.hasArg("c") && idaCommand(server.arg("c"))) server.send(200, "text/plain", "OK");
+    else server.send(400, "text/plain", "use /ida?c=fw|bw|left|right|stop|auto|manual|speed");
+  });
+
   server.on("/", handleRoot);
   server.begin();
 
@@ -568,7 +598,19 @@ void handleBluetooth() {
 
     if (c == '\n' || c == '\r' || c == ' ') continue;
 
+    if (btAwaitingIda) {
+      // 'I' + F/B/L/R (drive, repeat while held), S stop, O obstacle, W manual, X speed
+      btAwaitingIda = false;
+      String one(c);
+      one.toUpperCase();
+      SerialBT.println(idaCommand(one) ? "ida: ok" : "ida: ?");
+      continue;
+    }
+
     switch (c) {
+      // ---- IDA link prefix ----
+      case 'I': case 'i': btAwaitingIda = true; break;
+
       // ---- driving (manual mode only, same rule as the web pad) ----
       case 'F': case 'f': if (driveMode == MODE_MANUAL) moveForward();  break;
       case 'B': case 'b': if (driveMode == MODE_MANUAL) moveBackward(); break;
@@ -646,8 +688,37 @@ void handleBluetooth() {
 // mode those buttons are inert so they can't fight the website/BT driver
 // or the autonomous/line logic. Mode switching, music, and volume/mute
 // always work no matter which drive mode is active.
+// Sends one IDA link frame. The receiver is paused while it goes out, and
+// any reflection that still sneaks in is dropped in handleIR().
+void idaSend(uint8_t command) {
+  IrReceiver.stop();
+  IrSender.sendSamsung(IDA_LINK_ADDRESS, command, 0);
+  IrReceiver.start();
+}
+
+// Link command by name, as used by /ida?c=... and the BT 'I' prefix.
+// Returns false for an unknown name.
+bool idaCommand(const String& c) {
+  if      (c == "fw"     || c == "F") idaSend(LINK_FORWARD);
+  else if (c == "bw"     || c == "B") idaSend(LINK_BACKWARD);
+  else if (c == "left"   || c == "L") idaSend(LINK_LEFT);
+  else if (c == "right"  || c == "R") idaSend(LINK_RIGHT);
+  else if (c == "stop"   || c == "S") idaSend(LINK_STOP);
+  else if (c == "auto"   || c == "O") idaSend(LINK_OBSTACLE);
+  else if (c == "manual" || c == "W") idaSend(LINK_MANUAL);
+  else if (c == "speed"  || c == "X") idaSend(LINK_SPEED);
+  else return false;
+  return true;
+}
+
 void handleIR() {
   if (!IrReceiver.decode()) return;
+
+  // our own IDA link frames (a reflection off a nearby wall) aren't commands for NORA
+  if (IrReceiver.decodedIRData.protocol == SAMSUNG && IrReceiver.decodedIRData.address == IDA_LINK_ADDRESS) {
+    IrReceiver.resume();
+    return;
+  }
 
   if (IrReceiver.decodedIRData.protocol != UNKNOWN) {
     bool    isRepeat = IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT;
@@ -1028,6 +1099,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
   <title>NORA Control</title>
+  <link rel="icon" href="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAgACADASIAAhEBAxEB/8QAGQAAAgMBAAAAAAAAAAAAAAAABgcCAwUE/8QALRAAAgEDAgQEBQUAAAAAAAAAAQIDBAUREiEABjFRBxQiQQgTFWFxFjJCgdH/xAAXAQADAQAAAAAAAAAAAAAAAAABBAUG/8QAJxEAAQIFAwMFAQAAAAAAAAAAAQIDAAURITEEQbFhcdEGEhQigZH/2gAMAwEAAhEDEQA/ADTxKvMVrsVd5qoVIpIdMahtLF+uAcH3A9vfhKXDnm5XOppoqiud5KddMdPFJ8tYwV79W2/lk8b/AMSa3T6/RMwkNC1OyxKkgUE7ZLd9zjHb88AvIskNdzVBBURxy04wsrasFNXpJVlwRgnIx024xXpyUsnQIdUPcTU9tv7a+I2a9WnTLUvfFx+2837Q1Ul555a5TEs1bHd7RUxSRJPC5jnp2KahJhzkKDkdcnsD16fAu700slwpBNIlRUVJcwTzan9KHLKuThc44zufKS009BDarLUS09DbpoZKqITNJ5kyOA5lBA9QwMHJBB79L/Bc22111PRUKUoFVPV65BTFZmKhNKltwFGWAX8d+BNNOyJc+lCLquaCmKmpyMDAicXHFaptaz0485gb+J5o/wBVW4SLDqFICjtIw21HII6bHfv6vsDwr4Y5qysiaMyxyJIqa0zq3P7gdifbh5+JdfLTc9XO3LYrfXGqtQl1SRI7iNQxY5IJU6l2xucD78A/JFusnNMtfTtVRULJUP5OSXAgdDv8t9iR2B3xsD0zxYkDoYlrRULBINc56c/sJzB8uOLaG54iHJVyuF3jrbTe7tW1TOIYRhdZSFZNZJwNxkjc/wC8MXw2q0juUEdRPHUTx1UiJo04WNlCDQAMEHSG29u+ngO+iG1VFUsKxUt1tyK8MUkpxIyMNSajs2VLDB2P9Dgn8GoWq7xFXNSrEsKPDGiJpQIm4dvYyesL3Gls9eEZ8238Z52v1IrtunboRxB0byluNoAoR5j/2Q==">
   <style>
     :root {
       /* same palette as KIDA's HUD (styles.css) — one look across the fleet */
@@ -1160,6 +1232,32 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     .right { grid-column: 3; grid-row: 3; }
     #status { font-size: 0.8rem; color: var(--text-dim); }
 
+    /* avatar */
+    .avatar { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 2px solid var(--accent);
+              box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.35); }
+
+    /* IDA link panel: drive IDA through NORA's IR transmitter */
+    #idaPanel { width: 100%; max-width: 360px; background: var(--panel); border: 1px solid var(--border);
+                border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    #idaTop { width: 100%; display: flex; align-items: center; gap: 12px; }
+    #idaTop .avatar { width: 52px; height: 52px; border-color: var(--orange); box-shadow: 0 0 14px rgba(255,190,80,0.3); }
+    #idaTop b { color: var(--orange); letter-spacing: 3px; display: block; }
+    #idaTop small { color: var(--text-dim); font-size: 0.7rem; }
+    #idaStatus { margin-left: auto; font-size: 0.75rem; color: var(--text-dim); }
+    #idaModes { display: flex; gap: 8px; }
+    #idaModes .mode-btn { padding: 8px 12px; font-size: 0.75rem; }
+    .ida-pad { display: grid; grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(3, 64px); gap: 6px; }
+    .ida-btn {
+      background: var(--bg); border: 2px solid var(--border); border-radius: var(--radius);
+      color: var(--text-val); font-size: 1.3rem; cursor: pointer; user-select: none;
+      display: flex; align-items: center; justify-content: center;
+      -webkit-tap-highlight-color: transparent; touch-action: none;
+    }
+    .ida-btn.pressed { background: rgba(255,190,80,0.25); border-color: var(--orange); }
+    .ida-btn.istop { color: var(--red); border-color: var(--red); font-size: 0.75rem; font-weight: bold; }
+    .ifw { grid-column: 2; grid-row: 1; } .ileft { grid-column: 1; grid-row: 2; } .istop { grid-column: 2; grid-row: 2; }
+    .iright { grid-column: 3; grid-row: 2; } .ibw { grid-column: 2; grid-row: 3; }
+
     #calPanel {
       width: 100%; max-width: 340px;
       background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
@@ -1178,6 +1276,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
   </style>
 </head>
 <body>
+  <img class="avatar" src="data:image/jpeg;base64,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" alt="NORA">
   <h1>NORA</h1>
   <h2>Nomadic Omnidirectional Reactive Automaton</h2>
 
@@ -1252,6 +1351,26 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     <div class="btn right" data-cmd="/right">&#9658;</div>
   </div>
   <div id="status">Idle</div>
+
+  <div id="idaPanel">
+    <div id="idaTop">
+      <img class="avatar" src="data:image/jpeg;base64,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" alt="IDA">
+      <div><b>IDA</b><small>over NORA's IR link &middot; keys I J K L</small></div>
+      <span id="idaStatus">ready</span>
+    </div>
+    <div id="idaModes">
+      <button class="mode-btn" onclick="ida('manual')">MANUAL</button>
+      <button class="mode-btn" onclick="ida('auto')">AUTO</button>
+      <button class="mode-btn" onclick="ida('speed')">SPEED</button>
+    </div>
+    <div class="ida-pad">
+      <div class="ida-btn ifw"    data-ida="fw">&#9650;</div>
+      <div class="ida-btn ileft"  data-ida="left">&#9668;</div>
+      <div class="ida-btn istop"  data-ida="stop">STOP</div>
+      <div class="ida-btn iright" data-ida="right">&#9658;</div>
+      <div class="ida-btn ibw"    data-ida="bw">&#9660;</div>
+    </div>
+  </div>
 
   <details id="calPanel">
     <summary>Wheel Calibration</summary>
@@ -1408,6 +1527,45 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
   document.addEventListener('mouseup',  () => stopCmd());
   document.addEventListener('touchend', () => stopCmd());
+
+  // ---- IDA link: same hold-to-drive rhythm as NORA's pad (resend every
+  // 150 ms while held; IDA stops on her own ~0.5 s after the last one) ----
+  let idaActive = null, idaTimer = null;
+  function ida(c) {
+    fetch('/ida?c=' + c).catch(() => {});
+    document.getElementById('idaStatus').textContent = c;
+  }
+  function idaStart(c) {
+    if (idaActive === c) return;
+    idaStop(false);
+    idaActive = c;
+    ida(c);
+    idaTimer = setInterval(() => ida(c), 150);
+  }
+  function idaStop(sendStop = true) {
+    if (!idaActive) return;
+    clearInterval(idaTimer);
+    idaActive = null;
+    if (sendStop) ida('stop');
+  }
+  document.querySelectorAll('.ida-btn').forEach(btn => {
+    const c = btn.dataset.ida;
+    const down = e => { e.preventDefault(); c === 'stop' ? (idaStop(false), ida('stop')) : idaStart(c); btn.classList.add('pressed'); };
+    const up   = e => { e.preventDefault(); if (c !== 'stop') idaStop(); btn.classList.remove('pressed'); };
+    btn.addEventListener('mousedown', down);
+    btn.addEventListener('mouseup', up);
+    btn.addEventListener('mouseleave', e => { if (idaActive === c) idaStop(); btn.classList.remove('pressed'); });
+    btn.addEventListener('touchstart', down, { passive: false });
+    btn.addEventListener('touchend', up);
+  });
+  const idaKeys = { 'i': 'fw', 'k': 'bw', 'j': 'left', 'l': 'right' };
+  document.addEventListener('keydown', e => {
+    const c = idaKeys[e.key.toLowerCase()];
+    if (c && !e.repeat) { e.preventDefault(); idaStart(c); }
+  });
+  document.addEventListener('keyup', e => {
+    if (idaKeys[e.key.toLowerCase()] === idaActive) idaStop();
+  });
 
   const keyMap = {
     'arrowup':'/fw', 'arrowdown':'/bw', 'arrowleft':'/left', 'arrowright':'/right',
