@@ -253,6 +253,14 @@ Pick the robot with the tabs on the web page's panel, or `<` `>` / `Tab` in the 
 
 `/ida?c=...` and Bluetooth `I` + letter still drive IDA directly. WHIP has a single gait speed, so `speed` does nothing there.
 
+### Talking with the fleet
+Every 30–90 s, when she hasn't driven anyone over the link for 15 s (and isn't being driven by the IR remote), NORA says something to IDA: she chirps a phrase on her buzzer and sends it over the link, and IDA answers on hers. Between phrases a silent "I am here" beacon goes to IDA, MILA, WHIP and KIDA-01 in turn (each hears it every 8 s); IDA greets NORA when it comes back after a minute away. Her clap detector ignores sounds while she talks, so the chirps don't start the music.
+
+Phrases (link commands): `0x40` hello, `0x41` how are you, `0x42` happy, `0x43` curious, `0x44` sleepy, `0x45` let's play, `0x46` bye, `0x47` "I am here" beacon (silent).
+
+- `GET /talk` returns the last 12 things she said, as JSON (`{"now":ms,"log":[{"ms":..,"from":"NORA","to":"IDA","said":"hello"}]}`) — the web panel shows the latest four.
+- `/talk?r=ida&p=hello` says one now (`p` = `hello` `how` `happy` `curious` `sleepy` `play` `bye`); **SAY HI** on the fleet panel does this for the selected robot.
+
 </details>
 
 ---

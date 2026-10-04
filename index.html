@@ -271,6 +271,8 @@ BZ:SPD:&lt;0-100&gt;  BZ:MODE:&lt;0-3&gt;  BZ:UV:&lt;0-2&gt;  BZ:LOCK:&lt;0|1&gt
         </tbody>
       </table>
     </div>
+    <h3 class="sub">Talking with the fleet</h3>
+    <p class="muted">Every 30&ndash;90&nbsp;s, when she isn&rsquo;t driving anyone, NORA says something to IDA: she chirps a phrase on her buzzer and sends it over the link, and IDA answers on hers. A silent &ldquo;I am here&rdquo; beacon goes round the fleet in between, and IDA greets NORA when she comes back after a minute away. <code>GET /talk</code> returns the conversation log as JSON; <code>/talk?r=ida&amp;p=hello</code> (or <strong>SAY HI</strong> on the panel) says one now. Phrases: <code>0x40</code> hello, <code>0x41</code> how are you, <code>0x42</code> happy, <code>0x43</code> curious, <code>0x44</code> sleepy, <code>0x45</code> let&rsquo;s play, <code>0x46</code> bye, <code>0x47</code> &ldquo;I am here&rdquo; beacon (silent).</p>
     <p class="muted spaced">Connect through <a href="https://github.com/CursedPrograms/RIFT">RIFT</a> at the same address. Board docs: <a href="https://acebottteam.github.io/acebott-docs-master/board/ESP32/QA007%20ESP32%20Max%20V1.0%20Controller%20Board.html">ACEBOTT ESP32 Max V1.0</a>.</p>
     <figure class="shot">
       <img src="images/NORA5.jpg" alt="NORA on the floor" loading="lazy">

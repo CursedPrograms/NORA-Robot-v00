@@ -90,6 +90,45 @@ void oneShotBeep(unsigned int freq, unsigned int durMs) {
   buzzOverrideUntil = millis() + durMs;
 }
 
+// ---- NORA's voice: the chirp phrases of the robots' "conversations" ----
+// BZ:TALK:<n> from the ESP32, n = phrase 0-6 (the IR link's 0x40 + n:
+// hello, how are you, happy, curious, sleepy, let's play, bye). Up to four
+// {freq, ms} notes each, freq 0 = a rest, ms 0 = the end. The notes step from
+// loop() and pollDuring() so the sensors keep running while she talks.
+const uint16_t TALK_NOTES[7][8] PROGMEM = {
+  { 700,  90, 1000, 140,    0,   0,    0, 0 },   // hello
+  { 800,  80,  900,  80, 1200, 160,    0, 0 },   // how are you?
+  { 900,  60, 1200,  60, 1500, 120,    0, 0 },   // happy
+  { 600, 100,    0,  40, 1100, 140,    0, 0 },   // curious
+  { 700, 180,  500, 240,    0,   0,    0, 0 },   // sleepy
+  {1000,  60, 1000,  60, 1400, 140,    0, 0 },   // let's play
+  {1000, 120,  650, 200,    0,   0,    0, 0 },   // bye
+};
+int8_t        talkPhrase = -1;   // phrase playing, -1 = quiet
+uint8_t       talkNote   = 0;
+unsigned long talkNextMs = 0;
+// Her chirps (and the robot answering her) would sound like a clap to the
+// sound sensor and start the music, so claps are ignored until this time.
+unsigned long soundMuteUntil = 0;
+
+void startTalk(int phrase) {
+  talkPhrase = constrain(phrase, 0, 6);
+  talkNote   = 0;
+  talkNextMs = 0;
+  soundMuteUntil = millis() + 2500;   // her phrase + time for the answer
+}
+
+void stepTalk() {
+  if (talkPhrase < 0 || millis() < talkNextMs) return;
+  uint16_t f = talkNote < 4 ? pgm_read_word(&TALK_NOTES[talkPhrase][talkNote * 2]) : 0;
+  uint16_t d = talkNote < 4 ? pgm_read_word(&TALK_NOTES[talkPhrase][talkNote * 2 + 1]) : 0;
+  if (d == 0) { talkPhrase = -1; return; }
+  if (f) tone(BUZZER_PIN, f, d); else noTone(BUZZER_PIN);
+  talkNextMs = millis() + d + 25;
+  buzzOverrideUntil = talkNextMs;   // the obstacle tone waits until she's done
+  talkNote++;
+}
+
 // Closer = higher pitch, like a parking sensor. `d` must already be a
 // valid (>0) reading -- callers check that before calling this.
 int obstacleFreq(float d) {
@@ -151,6 +190,8 @@ void setup() {
 }
 
 void loop() {
+  stepTalk();
+
   // ---- Commands from ESP32 ----
   while (Serial.available()) {
     char c = Serial.read();
@@ -235,8 +276,9 @@ void loop() {
 void pollDuring(unsigned long ms) {
   unsigned long start = millis();
   while (millis() - start < ms) {
+    stepTalk();
     bool level = (digitalRead(SOUND_PIN) == HIGH);
-    if (level && !lastSoundLevel && millis() - lastSoundMs > 120) {
+    if (level && !lastSoundLevel && millis() - lastSoundMs > 120 && millis() >= soundMuteUntil) {
       lastSoundMs = millis();
       soundEvent  = true;
     }
@@ -268,6 +310,10 @@ void handleCommand(String cmd) {
   if (cmd.startsWith("BZ:LOCK:")) {
     bool locked = cmd.substring(8).toInt() == 1;
     oneShotBeep(locked ? 300 : 950, locked ? 180 : 90);
+    return;
+  }
+  if (cmd.startsWith("BZ:TALK:")) {
+    startTalk(cmd.substring(8).toInt());
     return;
   }
   if (cmd == "BZ:DENIED") {

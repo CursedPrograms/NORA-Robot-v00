@@ -136,6 +136,28 @@ float humidity = -1;
 #define MILA_LINK_ADDRESS 0x0DA2
 #define WHIP_LINK_ADDRESS 0x0DA3
 #define KIDA_LINK_ADDRESS 0x0DA4
+
+// ---- Robots talking (liveliness; the real data goes over WiFi / the link) ----
+// Every so often, when she isn't driving anyone, NORA says a phrase: she
+// chirps it on her buzzer (BZ:TALK:n to the UNO) and sends 0x40 + n over the
+// link. IDA answers on her buzzer (IDA.ino hearNora()). Between phrases a
+// silent beacon (0x47, "I am here") goes round-robin to every link robot, so
+// they know she's near; IDA greets her when she comes back after a while.
+// Every phrase is logged for /talk (and RIFT, later).
+#define TALK_FIRST  0x40
+#define TALK_BEACON 0x47
+const char* const TALK_NAMES[7] = { "hello", "how are you", "happy", "curious", "sleepy", "play", "bye" };
+const unsigned long TALK_QUIET_MS   = 15000;   // no chatting within 15 s of driving a robot over the link
+const unsigned long BEACON_EVERY_MS = 2000;    // one robot per beacon, so each hears it every 8 s
+const int TALK_LOG_LEN = 12;
+unsigned long talkLogMs[TALK_LOG_LEN];
+uint16_t      talkLogTo[TALK_LOG_LEN];
+uint8_t       talkLogPhrase[TALK_LOG_LEN];
+int           talkLogCount = 0, talkLogNext = 0;
+unsigned long lastLinkDriveMs = 0;   // last drive command sent over the link
+unsigned long nextTalkMs      = 30000;
+unsigned long nextBeaconMs    = 0;
+int           beaconIndex     = 0;
 #define LINK_FORWARD   0x48
 #define LINK_BACKWARD  0x49
 #define LINK_LEFT      0x4A
@@ -337,6 +359,7 @@ void setup() {
   speedPct = prefs.getInt("spd", 100);
   prefs.end();
 
+  randomSeed(esp_random());   // the conversations shouldn't repeat every boot
   WiFi.softAP(ap_ssid, ap_password);
   SerialBT.begin("NORA");   // Bluetooth device name shown when pairing
   IrReceiver.begin(IR_RECEIVE_PIN, DISABLE_LED_FEEDBACK);
@@ -495,6 +518,19 @@ void setup() {
     if (addr && server.hasArg("c") && linkCommand(addr, server.arg("c"))) server.send(200, "text/plain", "OK");
     else server.send(400, "text/plain", "use /link?r=ida|mila|whip|kida&c=fw|bw|left|right|stop|auto|manual|speed");
   });
+  // ---- robots talking: GET /talk = the log; /talk?r=ida&p=hello = say it now ----
+  server.on("/talk", []() {
+    if (server.hasArg("p")) {
+      uint16_t addr = linkAddress(server.hasArg("r") ? server.arg("r") : String("ida"));
+      int phrase = talkPhrase(server.arg("p"));
+      if (!addr || phrase < 0) {
+        server.send(400, "text/plain", "use /talk?r=ida|mila|whip|kida&p=hello|how|happy|curious|sleepy|play|bye");
+        return;
+      }
+      talkSay(addr, phrase);
+    }
+    server.send(200, "application/json", talkJson());
+  });
   server.on("/avatar/ida.jpg",  []() { sendAvatar(AVATAR_IDA,  sizeof(AVATAR_IDA));  });
   server.on("/avatar/mila.jpg", []() { sendAvatar(AVATAR_MILA, sizeof(AVATAR_MILA)); });
   server.on("/avatar/whip.jpg", []() { sendAvatar(AVATAR_WHIP, sizeof(AVATAR_WHIP)); });
@@ -522,6 +558,7 @@ void loop() {
   lf_r = digitalRead(LF_RIGHT);
 
   unsigned long now = millis();
+  talkTick(now);
 
   // IR has no key-up event — a held button just keeps resending, and
   // releasing it simply stops the resends. So if we're driving off the IR
@@ -767,7 +804,72 @@ bool linkCommand(uint16_t address, const String& c) {
   else if (c == "speed"  || c == "X") code = LINK_SPEED;
   else return false;
   linkSend(address, code);
+  lastLinkDriveMs = millis();
   return true;
+}
+
+const char* linkName(uint16_t address) {
+  switch (address) {
+    case IDA_LINK_ADDRESS:  return "IDA";
+    case MILA_LINK_ADDRESS: return "MILA";
+    case WHIP_LINK_ADDRESS: return "WHIP";
+    case KIDA_LINK_ADDRESS: return "KIDA";
+  }
+  return "?";
+}
+
+// Say phrase (0-6) to the robot at address: chirp it, send it, log it.
+void talkSay(uint16_t address, uint8_t phrase) {
+  if (phrase > 6) return;
+  Serial.print("BZ:TALK:");
+  Serial.println(phrase);
+  linkSend(address, TALK_FIRST + phrase);
+  talkLogMs[talkLogNext]     = millis();
+  talkLogTo[talkLogNext]     = address;
+  talkLogPhrase[talkLogNext] = phrase;
+  talkLogNext = (talkLogNext + 1) % TALK_LOG_LEN;
+  if (talkLogCount < TALK_LOG_LEN) talkLogCount++;
+}
+
+// Phrase by name ("hello", "play"...) or number, -1 if unknown.
+int talkPhrase(String p) {
+  p.toLowerCase();
+  for (int i = 0; i < 7; i++) if (p == TALK_NAMES[i]) return i;
+  if (p == "how") return 1;
+  if (p.length() == 1 && isDigit(p[0]) && p[0] <= '6') return p[0] - '0';
+  return -1;
+}
+
+// Called every loop: chat now and then, and keep the beacon going.
+void talkTick(unsigned long now) {
+  if (now - lastLinkDriveMs < TALK_QUIET_MS) return;   // busy driving someone
+  if (irLastDriveMs != 0) return;                       // being driven by the IR remote: keep the receiver free
+  if (now >= nextTalkMs) {
+    // mostly greetings and good moods; "bye" and "sleepy" now and then
+    static const uint8_t PICK[] = { 0, 0, 1, 1, 2, 2, 3, 3, 5, 5, 4, 6 };
+    talkSay(IDA_LINK_ADDRESS, PICK[random(sizeof(PICK))]);
+    nextTalkMs = now + random(30000, 90000);
+    nextBeaconMs = now + 3000;   // leave room for the answer
+    return;
+  }
+  if (now >= nextBeaconMs) {
+    static const uint16_t ROBOTS[] = { IDA_LINK_ADDRESS, MILA_LINK_ADDRESS, WHIP_LINK_ADDRESS, KIDA_LINK_ADDRESS };
+    linkSend(ROBOTS[beaconIndex], TALK_BEACON);
+    beaconIndex = (beaconIndex + 1) % 4;
+    nextBeaconMs = now + BEACON_EVERY_MS;
+  }
+}
+
+// /talk as JSON, oldest first: {"now":ms,"log":[{"ms":..,"from":"NORA","to":"IDA","said":"hello"},..]}
+String talkJson() {
+  String j = "{\"now\":" + String(millis()) + ",\"log\":[";
+  for (int i = 0; i < talkLogCount; i++) {
+    int k = (talkLogNext - talkLogCount + i + TALK_LOG_LEN) % TALK_LOG_LEN;
+    if (i) j += ",";
+    j += "{\"ms\":" + String(talkLogMs[k]) + ",\"from\":\"NORA\",\"to\":\"" + linkName(talkLogTo[k]) +
+         "\",\"said\":\"" + TALK_NAMES[talkLogPhrase[k]] + "\"}";
+  }
+  return j + "]}";
 }
 
 void handleIR() {
@@ -1306,6 +1408,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     #linkRobots button { flex: 1; padding: 6px 0; font: bold 0.75rem var(--font); letter-spacing: 1px; cursor: pointer;
                          background: var(--bg); color: var(--text-dim); border: 1px solid var(--border); border-radius: var(--radius); }
     #linkRobots button.active { color: var(--link); border-color: var(--link); }
+    #talkLog { width: 100%; font-size: 0.72rem; color: var(--text-dim); line-height: 1.5; min-height: 1.5em; }
+    #talkLog b { color: var(--link); font-weight: normal; }
     #idaTop small { color: var(--text-dim); font-size: 0.7rem; }
     #idaStatus { margin-left: auto; font-size: 0.75rem; color: var(--text-dim); }
     #idaModes { display: flex; gap: 8px; }
@@ -1432,6 +1536,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       <button class="mode-btn" onclick="ida('manual')">MANUAL</button>
       <button class="mode-btn" onclick="ida('auto')">AUTO</button>
       <button class="mode-btn" onclick="ida('speed')">SPEED</button>
+      <button class="mode-btn" onclick="sayHi()">SAY HI</button>
     </div>
     <div class="ida-pad">
       <div class="ida-btn ifw"    data-ida="fw">&#9650;</div>
@@ -1440,6 +1545,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       <div class="ida-btn iright" data-ida="right">&#9658;</div>
       <div class="ida-btn ibw"    data-ida="bw">&#9660;</div>
     </div>
+    <div id="talkLog"></div>
   </div>
 
   <details id="calPanel">
@@ -1619,6 +1725,19 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     document.getElementById('idaStatus').textContent = 'ready';
   }
   document.querySelectorAll('#linkRobots button').forEach(b => b.addEventListener('click', () => selectRobot(b.dataset.robot)));
+
+  // ---- robots talking: the last few things NORA said, newest at the bottom ----
+  function showTalk(t) {
+    const lines = t.log.slice(-4).map(e => {
+      const ago = Math.max(0, Math.round((t.now - e.ms) / 1000));
+      return 'NORA &rarr; <b>' + e.to + '</b>: ' + e.said + ' <span>(' + ago + ' s ago)</span>';
+    });
+    document.getElementById('talkLog').innerHTML = lines.join('<br>');
+  }
+  function pollTalk() { fetch('/talk').then(r => r.json()).then(showTalk).catch(() => {}); }
+  function sayHi() { fetch('/talk?r=' + linkRobot + '&p=hello').then(r => r.json()).then(showTalk).catch(() => {}); }
+  pollTalk();
+  setInterval(pollTalk, 3000);
   function idaStart(c) {
     if (idaActive === c) return;
     idaStop(false);
