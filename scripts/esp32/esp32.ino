@@ -1202,6 +1202,14 @@ void readSerialSensors() {
 }
 
 void parseSensorLine(String line) {
+  // The fleet-wide handshake: a PC on her USB port asking "WHO". (The UNO
+  // hears the reply too and ignores it.)
+  if (line == "WHO") {
+    Serial.println("I am Nora");
+    return;
+  }
+  // Only the UNO's status lines carry readings; anything else would zero them.
+  if (!line.startsWith("F:")) return;
   auto extractFloat = [&](String key) -> float {
     int idx = line.indexOf(key + ":");
     if (idx == -1) return -1;
