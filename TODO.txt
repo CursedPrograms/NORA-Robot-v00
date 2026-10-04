@@ -4,7 +4,7 @@ Implement speed control on the remote
 
 Replace the AHT10 sensor and connect it to 3.3V (physical/hardware modification, not code)
 
-Add voice response
+[done in code] Add voice response - MP3 lines track200-210 (make_voice.bat). Still to do: copy them to the SD card and upload the UNO sketch.
 
 Add a buzzer
 
@@ -17,3 +17,13 @@ Improve obstacle avoidance (currently inaccurate; the sides scrape walls). It sh
 [done] If not actively transmitting IR commands, continuously broadcast a signal telling other robots: "Hi, I am here" (beacon 0x47, round-robin every 2 s)
 
 WiFi/Windows only — no Bluetooth serial transport (that needs separate serial-port code per platform), and no Linux/macOS HTTP backend (would need libcurl instead of WinHTTP). Both are legitimate follow-ups if you want them later.
+
+[done] Only obey NORA's own IR remote (NEC 0x00) - noise was switching her into Line mode; mode changes record their source (msrc)
+
+[done] Line mode stops for anything closer than 15 cm in front (she drove into a wall)
+
+[done] Web page sends fast (TCP no-delay) - the 10 s send froze her loop and hid her from RIFT
+
+UV BLINK may be restarting her (power dip?) - check if UV ON does it too; drive the UV LED through a transistor
+
+Left ultrasonic reads -1 (no echo) - check its wiring
