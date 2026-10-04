@@ -65,7 +65,7 @@ NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest 
 - [x] **Self-hosted AP:** no router needed; she is the fleet's network and registry (port `5000`).
 - [x] **Reactive safety:** four HC-SR04 sensors (front, back, left, right) block drive commands that would hit something, with a buzzer warning.
 - [x] **Four drive modes:** Manual (web / Bluetooth), Auto (obstacle avoidance), Line following, IR Remote.
-- [x] **IDA link:** drives [IDA](https://github.com/CursedPrograms/IDA-Robot-v00) through her IR transmitter, from the web page, the Python controller or Bluetooth.
+- [x] **Fleet IR remote:** drives IDA, MILA, WHIP and KIDA-01 through her IR transmitter, from the web page, the Python controller or Bluetooth. The panel shows the selected robot's avatar.
 - [x] **UV light:** off, on or blinking.
 - [x] **Music:** an MP3 player with play, next, previous, stop, repeat and volume. A single clap starts the music.
 - [x] **Environment:** temperature and humidity (AHT10), and ambient light.
@@ -140,7 +140,7 @@ NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest 
 | **Line follower L / M / R** | `GPIO 34` / `GPIO 35` / `GPIO 39` |
 | **UV LED** | `GPIO 4` |
 | **IR receiver OUT** | `GPIO 32` (power it from **3.3 V**, not 5 V) |
-| **IR transmitter LED** | `GPIO 33` (sends the IDA link) |
+| **IR transmitter LED** | `GPIO 33` (sends the fleet IR link) |
 | **AHT10 SDA / SCL** | `GPIO 21` / `GPIO 22` |
 | **UNO link** | `RX0` / `TX0` (UART0, 9600 baud) |
 
@@ -232,15 +232,26 @@ python scripts/controller.py                 # WiFi, NORA at 192.168.4.1:5002
 python scripts/controller.py --bt COM7       # Bluetooth serial instead
 ```
 
-### IDA link
-NORA drives [IDA](https://github.com/CursedPrograms/IDA-Robot-v00) through her IR transmitter (GPIO 33). The frames are Samsung-format IR at address `0x0DA1` with commands `0x48`–`0x4F`, so no other robot or remote reacts to them, and NORA ignores her own frames on her receiver. Drive commands repeat every 150 ms while held, with `stop` on release; IDA stops by herself if the link goes quiet for 500 ms.
+### Fleet IR link
+NORA drives [IDA](https://github.com/CursedPrograms/IDA-Robot-v00), MILA, WHIP and KIDA-01 through her IR transmitter (GPIO 33). The frames are Samsung-format IR, one address per robot, with the same commands `0x48`–`0x4F` for all of them. No remote in the fleet uses that protocol, so nothing else reacts, and NORA ignores her own frames on her receiver. Drive commands repeat every 150 ms while held, with `stop` on release; each robot stops by itself if the link goes quiet.
 
-| | Forward / Back / Left / Right | Stop | Obstacle mode | Manual (WASD) | Speed |
+| Robot | Address | Receiver |
+| :--- | :--- | :--- |
+| [IDA](https://github.com/CursedPrograms/IDA-Robot-v00) | `0x0DA1` | `IDA.ino` |
+| [MILA](https://github.com/CursedPrograms/MILA) | `0x0DA2` | `MILA.ino` |
+| [WHIP](https://github.com/CursedPrograms/WHIP-Robot-v00) | `0x0DA3` | `esp32.ino` |
+| [KIDA-01](https://github.com/CursedPrograms/KIDA-Robot-v01) | `0x0DA4` | `arduino01` sketch (prints the IR lines the Pi already reads) |
+
+Pick the robot with the tabs on the web page's panel, or `<` `>` / `Tab` in the Python controller. The panel's avatar, name and colour follow the selection.
+
+| | Forward / Back / Left / Right | Stop | Obstacle mode | Manual | Speed |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Web page** (IDA panel) | `I` `K` `J` `L` or the buttons | buttons | button | button | button |
-| **Python controller** (IDA column) | `I` `K` `J` `L` or the buttons | release | `O` | `P` | `Y` |
-| **HTTP** | `/ida?c=fw` `bw` `left` `right` | `stop` | `auto` | `manual` | `speed` |
-| **Bluetooth** | `IF` `IB` `IL` `IR` | `IS` | `IO` | `IW` | `IX` |
+| **Web page** (fleet panel) | `I` `K` `J` `L` or the buttons | buttons | button | button | button |
+| **Python controller** (right column) | `I` `K` `J` `L` or the buttons | release | `O` | `P` | `Y` |
+| **HTTP** | `/link?r=ida\|mila\|whip\|kida&c=fw` `bw` `left` `right` | `stop` | `auto` | `manual` | `speed` |
+| **Bluetooth** | `T` + robot (`I` `M` `W` `K`) + `F` `B` `L` `R` | `…S` | `…O` | `…W` | `…X` |
+
+`/ida?c=...` and Bluetooth `I` + letter still drive IDA directly. WHIP has a single gait speed, so `speed` does nothing there.
 
 </details>
 

@@ -146,6 +146,9 @@ class WifiLink:
     def ida(self, c):          # IDA link: 'fw' 'bw' 'left' 'right' 'stop' 'auto' 'manual' 'speed'
         self._pool.submit(self._get, "/ida?c=" + c)
 
+    def link(self, robot, c):  # fleet link: robot 'ida' 'mila' 'whip' 'kida', same commands as ida()
+        self._pool.submit(self._get, f"/link?r={robot}&c={c}")
+
 
 class BtLink:
     """Talks over a Bluetooth serial port using the single-char protocol."""
@@ -252,6 +255,11 @@ class BtLink:
     def ida(self, c):          # IDA link over BT: 'I' + one letter
         self._send("I" + self.IDA[c])
 
+    ROBOT = {"ida": "I", "mila": "M", "whip": "W", "kida": "K"}
+
+    def link(self, robot, c):  # fleet link over BT: 'T' + robot letter + command letter
+        self._send("T" + self.ROBOT[robot] + self.IDA[c])
+
 
 # ----------------------------------------------------------------------------
 # UI
@@ -275,6 +283,10 @@ W, H = 420, 870   # NORA's column (+90 over the base layout to fit the fleet pan
 IDA_W = 230        # the IDA link column to its right
 WIN_W = W + IDA_W
 IDA_COL = (232, 160, 90)   # IDA's avatar amber, so her panel reads as hers
+# Robots NORA can drive over the IR link, in selector order, each in its own
+# accent colour (from its colour_scheme.xml) so the panel reads as theirs
+LINK_ROBOTS = [("ida", "IDA", IDA_COL), ("mila", "MILA", (31, 212, 222)),
+               ("whip", "WHIP", (211, 72, 89)), ("kida", "KIDA", (223, 91, 163))]
 
 IMAGES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "images")
 
@@ -645,17 +657,25 @@ def main():
         pygame.K_q: "turnL", pygame.K_e: "turnR",
     }
 
-    # ---- IDA link panel: drives IDA through NORA's IR transmitter ----
+    # ---- fleet remote panel: drives IDA, MILA, WHIP or KIDA through NORA's
+    # IR transmitter; the avatar, name and colour follow the selected robot ----
     nora_face = round_avatar(os.path.join(IMAGES, "nora_avatar.jpg"), 52)
-    ida_face = round_avatar(os.path.join(IMAGES, "ida_avatar.jpg"), 96)
-    ida_active = None          # held IDA drive command
+    link_faces = {key: round_avatar(os.path.join(IMAGES, f"{key}_avatar.jpg"), 96) for key, _, _ in LINK_ROBOTS}
+    link_idx = 0               # selected robot in LINK_ROBOTS
+    ida_active = None          # held drive command
     ida_last = 0
     ida_status = "ready"
 
     def ida_send(c):
         nonlocal ida_status
-        link.ida(c)
+        link.link(LINK_ROBOTS[link_idx][0], c)
         ida_status = c
+
+    def select_robot(step):
+        nonlocal link_idx, ida_status
+        ida_stop()
+        link_idx = (link_idx + step) % len(LINK_ROBOTS)
+        ida_status = "ready"
 
     def ida_start(c):
         nonlocal ida_active, ida_last
@@ -671,6 +691,8 @@ def main():
 
     ix = W + 12                      # IDA column left edge
     icx = W + IDA_W // 2             # IDA column centre
+    add((ix - 4, 52, 30, 40), "<", lambda: select_robot(-1))
+    add((W + IDA_W - 44, 52, 30, 40), ">", lambda: select_robot(1))
     add((ix, 215, 100, 34), "MANUAL", lambda: ida_send("manual"))
     add((ix + 106, 215, 100, 34), "AUTO", lambda: ida_send("auto"))
     add((ix, 255, 206, 34), "SPEED", lambda: ida_send("speed"))
@@ -735,6 +757,8 @@ def main():
                     running = False
                 elif ev.key in key_drive and mode == "Manual":
                     start_drive(key_drive[ev.key])
+                elif ev.key == pygame.K_TAB:
+                    select_robot(-1 if ev.mod & pygame.KMOD_SHIFT else 1)
                 elif ev.key in key_ida:
                     ida_start(key_ida[ev.key])
                 elif ev.key == pygame.K_o: ida_send("auto")
@@ -791,7 +815,7 @@ def main():
             link.drive(active_drive)
             last_repeat = now
         if ida_active and now - ida_last > 0.15:
-            link.ida(ida_active)
+            link.link(LINK_ROBOTS[link_idx][0], ida_active)
             ida_last = now
 
         # ---- draw ----
@@ -838,16 +862,18 @@ def main():
         col = pygame.Rect(W + 2, 10, IDA_W - 12, H - 52)
         pygame.draw.rect(screen, PANEL, col, border_radius=6)
         pygame.draw.rect(screen, BORDER, col, 1, border_radius=6)
-        if ida_face:
-            screen.blit(ida_face, (icx - 48, 24))
-            pygame.draw.circle(screen, IDA_COL, (icx, 24 + 48), 49, 2)
-        lbl = f_big.render("IDA", True, IDA_COL)
+        robot_key, robot_name, robot_col = LINK_ROBOTS[link_idx]
+        face = link_faces.get(robot_key)
+        if face:
+            screen.blit(face, (icx - 48, 24))
+        pygame.draw.circle(screen, robot_col, (icx, 24 + 48), 49, 2)
+        lbl = f_big.render(robot_name, True, robot_col)
         screen.blit(lbl, lbl.get_rect(centerx=icx, y=128))
         lbl = f_sml.render("via NORA's IR link", True, DIM)
         screen.blit(lbl, lbl.get_rect(centerx=icx, y=160))
         lbl = f_sml.render("last: " + ida_status, True, TEXT)
         screen.blit(lbl, lbl.get_rect(centerx=icx, y=184))
-        for i, line in enumerate(("I J K L  drive", "O auto · P manual", "Y speed")):
+        for i, line in enumerate(("I J K L  drive", "O auto · P manual", "Y speed · Tab robot")):
             lbl = f_sml.render(line, True, DIM)
             screen.blit(lbl, lbl.get_rect(centerx=icx, y=500 + i * 18))
         sub = f_sml.render(transport + ("   connected" if link.ok else "   OFFLINE"),
@@ -932,7 +958,7 @@ def main():
             pygame.draw.rect(screen, ACCENT, dpad_btns[active_drive].rect, 3,
                              border_radius=6)
         if ida_active:
-            pygame.draw.rect(screen, IDA_COL, ida_btns[ida_active].rect, 3, border_radius=6)
+            pygame.draw.rect(screen, robot_col, ida_btns[ida_active].rect, 3, border_radius=6)
 
         hint = f_sml.render(
             "WASD drive · Q/E turn · space play · M next · X speed · U uv · 1-4 mode",

@@ -3,6 +3,7 @@
 #include <Preferences.h>
 #include "BluetoothSerial.h"
 #include <IRremote.hpp>
+#include "avatars.h"   // /avatar/<name>.jpg for the fleet-remote panel
 #include <Wire.h>
 #include <Adafruit_AHTX0.h>
 
@@ -128,6 +129,13 @@ float humidity = -1;
 // Driving commands must be re-sent every ~150 ms while held (the web page,
 // Python controller and BT 'I' prefix all do); IDA stops ~500 ms after they stop.
 #define IDA_LINK_ADDRESS 0x0DA1
+// The same link drives MILA, WHIP and KIDA-01 too, each on its own address
+// (same command codes). Their receivers: MILA.ino and WHIP's esp32.ino
+// runLinkCommand(), KIDA-01's arduino01 sketch (prints the IR lines the Pi
+// already understands).
+#define MILA_LINK_ADDRESS 0x0DA2
+#define WHIP_LINK_ADDRESS 0x0DA3
+#define KIDA_LINK_ADDRESS 0x0DA4
 #define LINK_FORWARD   0x48
 #define LINK_BACKWARD  0x49
 #define LINK_LEFT      0x4A
@@ -215,6 +223,7 @@ String btPwBuffer    = "";
 // fixed length since the payload ("name:cap1,cap2") is variable-length.
 bool   btAwaitingFleet = false;
 bool   btAwaitingIda   = false;   // 'I' prefix: the next char is an IDA link command
+uint16_t btLinkAddress = 0;       // 'T' prefix: 1 = waiting for the robot letter, else that robot's address
 String btFleetBuffer   = "";
 
 // =====================
@@ -480,6 +489,17 @@ void setup() {
     if (server.hasArg("c") && idaCommand(server.arg("c"))) server.send(200, "text/plain", "OK");
     else server.send(400, "text/plain", "use /ida?c=fw|bw|left|right|stop|auto|manual|speed");
   });
+  // ---- fleet link: the same commands for any robot NORA can reach over IR ----
+  server.on("/link", []() {
+    uint16_t addr = linkAddress(server.arg("r"));
+    if (addr && server.hasArg("c") && linkCommand(addr, server.arg("c"))) server.send(200, "text/plain", "OK");
+    else server.send(400, "text/plain", "use /link?r=ida|mila|whip|kida&c=fw|bw|left|right|stop|auto|manual|speed");
+  });
+  server.on("/avatar/ida.jpg",  []() { sendAvatar(AVATAR_IDA,  sizeof(AVATAR_IDA));  });
+  server.on("/avatar/mila.jpg", []() { sendAvatar(AVATAR_MILA, sizeof(AVATAR_MILA)); });
+  server.on("/avatar/whip.jpg", []() { sendAvatar(AVATAR_WHIP, sizeof(AVATAR_WHIP)); });
+  server.on("/avatar/kida.jpg", []() { sendAvatar(AVATAR_KIDA, sizeof(AVATAR_KIDA));
+  });
 
   server.on("/", handleRoot);
   server.begin();
@@ -598,6 +618,20 @@ void handleBluetooth() {
 
     if (c == '\n' || c == '\r' || c == ' ') continue;
 
+    if (btLinkAddress) {
+      // 'T' + robot (I IDA, M MILA, W WHIP, K KIDA) + the same letters as 'I'
+      String one(c);
+      one.toUpperCase();
+      if (btLinkAddress == 1) {
+        btLinkAddress = linkAddress(one);
+        if (!btLinkAddress) SerialBT.println("link: robot? (I M W K)");
+      } else {
+        SerialBT.println(linkCommand(btLinkAddress, one) ? "link: ok" : "link: ?");
+        btLinkAddress = 0;
+      }
+      continue;
+    }
+
     if (btAwaitingIda) {
       // 'I' + F/B/L/R (drive, repeat while held), S stop, O obstacle, W manual, X speed
       btAwaitingIda = false;
@@ -610,6 +644,7 @@ void handleBluetooth() {
     switch (c) {
       // ---- IDA link prefix ----
       case 'I': case 'i': btAwaitingIda = true; break;
+      case 'T': case 't': btLinkAddress = 1;    break;
 
       // ---- driving (manual mode only, same rule as the web pad) ----
       case 'F': case 'f': if (driveMode == MODE_MANUAL) moveForward();  break;
@@ -690,32 +725,56 @@ void handleBluetooth() {
 // always work no matter which drive mode is active.
 // Sends one IDA link frame. The receiver is paused while it goes out, and
 // any reflection that still sneaks in is dropped in handleIR().
-void idaSend(uint8_t command) {
+void linkSend(uint16_t address, uint8_t command) {
   IrReceiver.stop();
-  IrSender.sendSamsung(IDA_LINK_ADDRESS, command, 0);
+  IrSender.sendSamsung(address, command, 0);
   IrReceiver.start();
+}
+
+void idaSend(uint8_t command) { linkSend(IDA_LINK_ADDRESS, command); }
+
+// Link robot by name or BT letter -> its address, 0 if unknown.
+uint16_t linkAddress(String r) {
+  r.toLowerCase();
+  if (r == "ida"  || r == "i") return IDA_LINK_ADDRESS;
+  if (r == "mila" || r == "m") return MILA_LINK_ADDRESS;
+  if (r == "whip" || r == "w") return WHIP_LINK_ADDRESS;
+  if (r == "kida" || r == "k") return KIDA_LINK_ADDRESS;
+  return 0;
+}
+
+bool isLinkAddress(uint16_t a) { return a >= IDA_LINK_ADDRESS && a <= KIDA_LINK_ADDRESS; }
+
+void sendAvatar(const uint8_t* jpg, size_t len) {
+  server.sendHeader("Cache-Control", "max-age=86400");
+  server.send_P(200, "image/jpeg", (PGM_P)jpg, len);
 }
 
 // Link command by name, as used by /ida?c=... and the BT 'I' prefix.
 // Returns false for an unknown name.
-bool idaCommand(const String& c) {
-  if      (c == "fw"     || c == "F") idaSend(LINK_FORWARD);
-  else if (c == "bw"     || c == "B") idaSend(LINK_BACKWARD);
-  else if (c == "left"   || c == "L") idaSend(LINK_LEFT);
-  else if (c == "right"  || c == "R") idaSend(LINK_RIGHT);
-  else if (c == "stop"   || c == "S") idaSend(LINK_STOP);
-  else if (c == "auto"   || c == "O") idaSend(LINK_OBSTACLE);
-  else if (c == "manual" || c == "W") idaSend(LINK_MANUAL);
-  else if (c == "speed"  || c == "X") idaSend(LINK_SPEED);
+bool idaCommand(const String& c) { return linkCommand(IDA_LINK_ADDRESS, c); }
+
+// Link command by name or BT letter, sent to the robot at address.
+bool linkCommand(uint16_t address, const String& c) {
+  uint8_t code;
+  if      (c == "fw"     || c == "F") code = LINK_FORWARD;
+  else if (c == "bw"     || c == "B") code = LINK_BACKWARD;
+  else if (c == "left"   || c == "L") code = LINK_LEFT;
+  else if (c == "right"  || c == "R") code = LINK_RIGHT;
+  else if (c == "stop"   || c == "S") code = LINK_STOP;
+  else if (c == "auto"   || c == "O") code = LINK_OBSTACLE;
+  else if (c == "manual" || c == "W") code = LINK_MANUAL;
+  else if (c == "speed"  || c == "X") code = LINK_SPEED;
   else return false;
+  linkSend(address, code);
   return true;
 }
 
 void handleIR() {
   if (!IrReceiver.decode()) return;
 
-  // our own IDA link frames (a reflection off a nearby wall) aren't commands for NORA
-  if (IrReceiver.decodedIRData.protocol == SAMSUNG && IrReceiver.decodedIRData.address == IDA_LINK_ADDRESS) {
+  // our own link frames (a reflection off a nearby wall) aren't commands for NORA
+  if (IrReceiver.decodedIRData.protocol == SAMSUNG && isLinkAddress(IrReceiver.decodedIRData.address)) {
     IrReceiver.resume();
     return;
   }
@@ -1240,8 +1299,13 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     #idaPanel { width: 100%; max-width: 360px; background: var(--panel); border: 1px solid var(--border);
                 border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
     #idaTop { width: 100%; display: flex; align-items: center; gap: 12px; }
-    #idaTop .avatar { width: 52px; height: 52px; border-color: var(--orange); box-shadow: 0 0 14px rgba(255,190,80,0.3); }
-    #idaTop b { color: var(--orange); letter-spacing: 3px; display: block; }
+    #idaPanel { --link: #D6935A; }
+    #idaTop .avatar { width: 52px; height: 52px; border-color: var(--link); box-shadow: 0 0 14px var(--link); }
+    #idaTop b { color: var(--link); letter-spacing: 3px; display: block; }
+    #linkRobots { display: flex; gap: 6px; width: 100%; }
+    #linkRobots button { flex: 1; padding: 6px 0; font: bold 0.75rem var(--font); letter-spacing: 1px; cursor: pointer;
+                         background: var(--bg); color: var(--text-dim); border: 1px solid var(--border); border-radius: var(--radius); }
+    #linkRobots button.active { color: var(--link); border-color: var(--link); }
     #idaTop small { color: var(--text-dim); font-size: 0.7rem; }
     #idaStatus { margin-left: auto; font-size: 0.75rem; color: var(--text-dim); }
     #idaModes { display: flex; gap: 8px; }
@@ -1253,7 +1317,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       display: flex; align-items: center; justify-content: center;
       -webkit-tap-highlight-color: transparent; touch-action: none;
     }
-    .ida-btn.pressed { background: rgba(255,190,80,0.25); border-color: var(--orange); }
+    .ida-btn.pressed { background: color-mix(in srgb, var(--link) 25%, transparent); border-color: var(--link); }
     .ida-btn.istop { color: var(--red); border-color: var(--red); font-size: 0.75rem; font-weight: bold; }
     .ifw { grid-column: 2; grid-row: 1; } .ileft { grid-column: 1; grid-row: 2; } .istop { grid-column: 2; grid-row: 2; }
     .iright { grid-column: 3; grid-row: 2; } .ibw { grid-column: 2; grid-row: 3; }
@@ -1354,9 +1418,15 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
   <div id="idaPanel">
     <div id="idaTop">
-      <img class="avatar" src="data:image/jpeg;base64,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" alt="IDA">
-      <div><b>IDA</b><small>over NORA's IR link &middot; keys I J K L</small></div>
+      <img class="avatar" id="linkAvatar" src="/avatar/ida.jpg" alt="IDA">
+      <div><b id="linkName">IDA</b><small>over NORA's IR link &middot; keys I J K L</small></div>
       <span id="idaStatus">ready</span>
+    </div>
+    <div id="linkRobots">
+      <button data-robot="ida" class="active">IDA</button>
+      <button data-robot="mila">MILA</button>
+      <button data-robot="whip">WHIP</button>
+      <button data-robot="kida">KIDA</button>
     </div>
     <div id="idaModes">
       <button class="mode-btn" onclick="ida('manual')">MANUAL</button>
@@ -1530,11 +1600,25 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
   // ---- IDA link: same hold-to-drive rhythm as NORA's pad (resend every
   // 150 ms while held; IDA stops on her own ~0.5 s after the last one) ----
-  let idaActive = null, idaTimer = null;
+  let idaActive = null, idaTimer = null, linkRobot = 'ida';
+  const LINK_COLOURS = { ida: '#D6935A', mila: '#1FD4DE', whip: '#D34859', kida: '#DF5BA3' };
   function ida(c) {
-    fetch('/ida?c=' + c).catch(() => {});
+    fetch('/link?r=' + linkRobot + '&c=' + c).catch(() => {});
     document.getElementById('idaStatus').textContent = c;
   }
+  // Pick which robot the panel drives: its avatar, name and colour follow
+  function selectRobot(r) {
+    idaStop();
+    linkRobot = r;
+    const av = document.getElementById('linkAvatar');
+    av.src = '/avatar/' + r + '.jpg';
+    av.alt = r.toUpperCase();
+    document.getElementById('linkName').textContent = r.toUpperCase();
+    document.getElementById('idaPanel').style.setProperty('--link', LINK_COLOURS[r]);
+    document.querySelectorAll('#linkRobots button').forEach(b => b.classList.toggle('active', b.dataset.robot === r));
+    document.getElementById('idaStatus').textContent = 'ready';
+  }
+  document.querySelectorAll('#linkRobots button').forEach(b => b.addEventListener('click', () => selectRobot(b.dataset.robot)));
   function idaStart(c) {
     if (idaActive === c) return;
     idaStop(false);

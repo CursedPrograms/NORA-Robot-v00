@@ -247,16 +247,27 @@ BZ:SPD:&lt;0-100&gt;  BZ:MODE:&lt;0-3&gt;  BZ:UV:&lt;0-2&gt;  BZ:LOCK:&lt;0|1&gt
 <pre><span class="p">$</span> pip install -r requirements.txt
 <span class="p">$</span> python scripts/controller.py              <span class="c"># WiFi</span>
 <span class="p">$</span> python scripts/controller.py --bt COM7    <span class="c"># Bluetooth serial</span></pre>
-    <h3 class="sub">IDA link</h3>
-    <p class="muted">NORA drives <a href="https://cursedprograms.github.io/IDA-Robot-v00/">IDA</a> through her IR transmitter on GPIO&nbsp;33: Samsung-format IR at address <code>0x0DA1</code>, commands <code>0x48</code>&ndash;<code>0x4F</code>, so nothing else in the fleet reacts to it. Drive commands repeat every 150&nbsp;ms while held; IDA stops by herself if the link goes quiet for 500&nbsp;ms.</p>
+    <h3 class="sub">Fleet IR link</h3>
+    <p class="muted">NORA drives IDA, MILA, WHIP and KIDA-01 through her IR transmitter on GPIO&nbsp;33: Samsung-format IR, one address per robot, the same commands <code>0x48</code>&ndash;<code>0x4F</code> for all. Pick the robot with the panel's tabs (or <kbd>Tab</kbd> in the Python controller); its avatar, name and colour follow. Drive commands repeat every 150&nbsp;ms while held; each robot stops by itself if the link goes quiet.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Robot</th><th>Address</th><th>Receiver</th></tr></thead>
+        <tbody>
+          <tr><td><a href="https://cursedprograms.github.io/IDA-Robot-v00/">IDA</a></td><td><code>0x0DA1</code></td><td><code>IDA.ino</code></td></tr>
+          <tr><td><a href="https://cursedprograms.github.io/MILA/">MILA</a></td><td><code>0x0DA2</code></td><td><code>MILA.ino</code></td></tr>
+          <tr><td><a href="https://cursedprograms.github.io/WHIP-Robot-v00/">WHIP</a></td><td><code>0x0DA3</code></td><td><code>esp32.ino</code></td></tr>
+          <tr><td><a href="https://cursedprograms.github.io/KIDA-Robot-v01/">KIDA-01</a></td><td><code>0x0DA4</code></td><td><code>arduino01</code> sketch</td></tr>
+        </tbody>
+      </table>
+    </div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>From</th><th>Drive</th><th>Stop</th><th>Obstacle</th><th>Manual</th><th>Speed</th></tr></thead>
         <tbody>
           <tr><td>Web page</td><td><kbd>I</kbd> <kbd>K</kbd> <kbd>J</kbd> <kbd>L</kbd></td><td>button</td><td>button</td><td>button</td><td>button</td></tr>
           <tr><td>Python controller</td><td><kbd>I</kbd> <kbd>K</kbd> <kbd>J</kbd> <kbd>L</kbd></td><td>release</td><td><kbd>O</kbd></td><td><kbd>P</kbd></td><td><kbd>Y</kbd></td></tr>
-          <tr><td>HTTP</td><td><code>/ida?c=fw|bw|left|right</code></td><td><code>stop</code></td><td><code>auto</code></td><td><code>manual</code></td><td><code>speed</code></td></tr>
-          <tr><td>Bluetooth</td><td><code>IF IB IL IR</code></td><td><code>IS</code></td><td><code>IO</code></td><td><code>IW</code></td><td><code>IX</code></td></tr>
+          <tr><td>HTTP</td><td><code>/link?r=mila&amp;c=fw</code></td><td><code>stop</code></td><td><code>auto</code></td><td><code>manual</code></td><td><code>speed</code></td></tr>
+          <tr><td>Bluetooth</td><td><code>T</code> + robot <code>I M W K</code> + <code>F B L R</code></td><td><code>…S</code></td><td><code>…O</code></td><td><code>…W</code></td><td><code>…X</code></td></tr>
         </tbody>
       </table>
     </div>
