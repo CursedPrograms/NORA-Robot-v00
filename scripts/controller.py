@@ -38,6 +38,7 @@ CONTROLS (mirrors the web dashboard exactly -- same keys, same meanings)
   of showing a stale state.
 """
 
+import os
 import argparse
 import concurrent.futures
 import sys
@@ -458,7 +459,11 @@ def main():
 
     pygame.init()
     screen = pygame.display.set_mode((W, H))
-    pygame.display.set_caption("NORA Control")
+    pygame.display.set_caption("NORA Control")
+    try:  # window icon: the robot's avatar
+        pygame.display.set_icon(pygame.image.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "images", "nora-icon.png")))
+    except (pygame.error, OSError):
+        pass
     clock = pygame.time.Clock()
     # monospace to match KIDA's HUD font family
     f_big = pygame.font.SysFont("monospace", 26, bold=True)

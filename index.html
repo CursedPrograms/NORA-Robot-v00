@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NORA — Nomadic Omnidirectional Reactive Automaton</title>
+<meta name="description" content="NORA is an ESP32 mecanum robot and the WiFi hub of the DREAM Robotics fleet: four-way ultrasonic braking, line following, an MP3 player, a UV light, and web, Bluetooth and IR remote control.">
+<meta name="color-scheme" content="dark">
+<meta property="og:title" content="NORA — Nomadic Omnidirectional Reactive Automaton">
+<meta property="og:description" content="An ESP32 omnidirectional robot and the WiFi hub of the DREAM Robotics fleet.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="images/nora_avatar.jpg">
+<link rel="icon" href="site/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="site/apple-touch-icon.png">
+<link rel="stylesheet" href="site/style.css">
+<script src="site/site.js" defer></script>
+</head>
+<body>
+
+<nav aria-label="Primary">
+  <div class="wrap">
+    <a class="brand" href="#top">NORA</a>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#hardware">Hardware</a></li>
+      <li><a href="#modes">Modes</a></li>
+      <li><a href="#connect">Connect</a></li>
+      <li><a href="#screens">Screens</a></li>
+      <li><a href="https://github.com/CursedPrograms/NORA-Robot-v00">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <div class="eyebrow">A DREAM Robotics Agent &middot; Mecanum</div>
+    <h1>NORA</h1>
+    <p class="tagline">Nomadic Omnidirectional Reactive Automaton</p>
+    <p class="lede">An ESP32 mecanum robot that moves in any direction without turning. She hosts the WiFi network and fleet registry the rest of the robots join, while an Arduino with an MP3 shield runs her four ultrasonic sensors, music and buzzer.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/CursedPrograms/NORA-Robot-v00">View on GitHub</a>
+      <a class="btn" href="#connect">Connect</a>
+      <a class="btn" href="https://ko-fi.com/cursedentertainment">Support on Ko-fi</a>
+    </div>
+    <div class="tags" aria-label="Technologies">
+      <span class="tag">C++</span>
+      <span class="tag">Python</span>
+      <span class="tag">Arduino</span>
+      <span class="tag">ESP32</span>
+      <span class="tag">Mecanum</span>
+      <span class="tag">MIT License</span>
+    </div>
+    <figure class="avatar">
+      <img src="images/nora_avatar.jpg" alt="NORA's avatar: a human representation of the robot" width="768" height="768">
+      <figcaption>NORA &middot; avatar</figcaption>
+    </figure>
+    <div class="photos">
+      <figure>
+        <img src="images/NORA1.jpg" alt="NORA, the omnidirectional mecanum robot" width="1840" height="1939" loading="lazy">
+        <figcaption>NORA</figcaption>
+      </figure>
+      <figure>
+        <img src="images/NORA2.jpg" alt="NORA from another angle" width="1840" height="1988" loading="lazy">
+        <figcaption>Chassis</figcaption>
+      </figure>
+      <figure>
+        <img src="images/NORA4.jpg" alt="NORA's electronics" width="2909" height="1840" loading="lazy">
+        <figcaption>Electronics</figcaption>
+      </figure>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section id="overview">
+  <div class="wrap">
+    <h2>Overview</h2>
+    <h3 class="title">Any direction, no turning</h3>
+    <div class="grid cols-3">
+      <div class="card">
+        <span class="k">Move</span>
+        <h4>Omnidirectional</h4>
+        <p>Mecanum wheels let her drive, strafe and turn in place.</p>
+      </div>
+      <div class="card">
+        <span class="k">Host</span>
+        <h4>The fleet's network</h4>
+        <p>She runs the <code>NORA</code> access point and the fleet registry on port <code>5000</code>, so no router is needed.</p>
+      </div>
+      <div class="card">
+        <span class="k">Protect</span>
+        <h4>Four-way braking</h4>
+        <p>HC-SR04 sensors front, back, left and right block any drive command that would hit something, with a buzzer warning.</p>
+      </div>
+      <div class="card">
+        <span class="k">Music</span>
+        <h4>MP3 player</h4>
+        <p>Play, skip, repeat and volume from the web, the remote or the controller. A single clap starts the music.</p>
+      </div>
+      <div class="card">
+        <span class="k">Sense</span>
+        <h4>Environment</h4>
+        <p>Temperature and humidity (AHT10), ambient light, and a 3-channel line sensor.</p>
+      </div>
+      <div class="card">
+        <span class="k">Clean</span>
+        <h4>UV light</h4>
+        <p>A UV LED that can be off, on or blinking.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="hardware">
+  <div class="wrap">
+    <h2>Hardware</h2>
+    <h3 class="title">What she's built from</h3>
+    <ol class="parts">
+      <li><span class="n">01</span> ESP32 (ACEBOTT QA007 Max controller board)</li>
+      <li><span class="n">02</span> Arduino UNO + SparkFun MP3 Player Shield</li>
+      <li><span class="n">03</span> Mecanum robot chassis</li>
+      <li><span class="n">04</span> 2&times; L298N motor drivers</li>
+      <li><span class="n">05</span> 4&times; 5&nbsp;V DC motors</li>
+      <li><span class="n">06</span> 2S 18650 battery pack</li>
+      <li><span class="n">07</span> 4&times; HC-SR04 ultrasonic sensors</li>
+      <li><span class="n">08</span> 3-channel line tracking sensor</li>
+      <li><span class="n">09</span> AHT10 temperature / humidity</li>
+      <li><span class="n">10</span> Photoresistor and sound sensor</li>
+      <li><span class="n">11</span> Buzzer and UV LED</li>
+      <li><span class="n">12</span> IR receiver and IR transmitter LED</li>
+    </ol>
+    <h3 class="sub">ESP32 pinout</h3>
+    <div class="grid cols-2">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Motors</th><th>PWM</th><th>Dir 1</th><th>Dir 2</th></tr></thead>
+        <tbody>
+          <tr><td>M0 (front)</td><td>GPIO 5</td><td>GPIO 16</td><td>GPIO 17</td></tr>
+          <tr><td>M1 (front)</td><td>GPIO 23</td><td>GPIO 18</td><td>GPIO 19</td></tr>
+          <tr><td>M2 (rear)</td><td>GPIO 12</td><td>GPIO 13</td><td>GPIO 14</td></tr>
+          <tr><td>M3 (rear)</td><td>GPIO 27</td><td>GPIO 26</td><td>GPIO 25</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Sensors &amp; outputs</th><th>GPIO</th></tr></thead>
+        <tbody>
+          <tr><td>Line follower L / M / R</td><td class="mono">34 / 35 / 39</td></tr>
+          <tr><td>UV LED</td><td class="mono">4</td></tr>
+          <tr><td>IR receiver (3.3&nbsp;V)</td><td class="mono">32</td></tr>
+          <tr><td>IR transmitter</td><td class="mono">33</td></tr>
+          <tr><td>AHT10 SDA / SCL</td><td class="mono">21 / 22</td></tr>
+          <tr><td>UNO link</td><td class="mono">RX0 / TX0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    </div>
+    <h3 class="sub">UNO pinout</h3>
+    <div class="grid cols-2">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Ultrasonic</th><th>Pin</th></tr></thead>
+        <tbody>
+          <tr><td>TRIG (all four joined)</td><td class="mono">A4</td></tr>
+          <tr><td>Front / right ECHO</td><td class="mono">A0 / A1</td></tr>
+          <tr><td>Back / left ECHO</td><td class="mono">A2 / A3</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Other</th><th>Pin</th></tr></thead>
+        <tbody>
+          <tr><td>Photoresistor</td><td class="mono">A5</td></tr>
+          <tr><td>Sound sensor</td><td class="mono">D5</td></tr>
+          <tr><td>Buzzer</td><td class="mono">D10</td></tr>
+          <tr><td>ESP32 link</td><td class="mono">D0 / D1</td></tr>
+        </tbody>
+      </table>
+    </div>
+    </div>
+    <p class="muted spaced">The MP3 shield reserves D2&ndash;D4, D6&ndash;D9 and D11&ndash;D13. The boards talk over a 9600 baud UART on their hardware serial pins, so unplug the link before uploading to either board.</p>
+<pre><span class="c"># UNO &rarr; ESP32: distances in cm, track, music state, light %, sound flag</span>
+F:23.4,L:10.1,B:45.0,R:8.3,MT:101,MS:1,LT:62,SND:0
+
+<span class="c"># ESP32 &rarr; UNO</span>
+M:PLAY  M:NEXT  M:PREV  M:STOP  M:REPEAT  V:UP  V:DOWN  V:MUTE
+BZ:SPD:&lt;0-100&gt;  BZ:MODE:&lt;0-3&gt;  BZ:UV:&lt;0-2&gt;  BZ:LOCK:&lt;0|1&gt;  BZ:DENIED</pre>
+    <p class="note"><strong>Common GND is non-negotiable.</strong> If the motors behave erratically or the sensors read 0, check the ground bridge between every module first.</p>
+  </div>
+</section>
+
+<section id="modes">
+  <div class="wrap">
+    <h2>Drive modes</h2>
+    <h3 class="title">Four ways to move</h3>
+    <div class="grid cols-2">
+      <div class="card mode">
+        <span class="k"><kbd>1</kbd> &middot; Manual</span>
+        <h4>Web, controller, Bluetooth</h4>
+        <p>D-pad control from the web page, the Python controller or Bluetooth serial.</p>
+      </div>
+      <div class="card mode">
+        <span class="k"><kbd>2</kbd> &middot; Auto</span>
+        <h4>Obstacle avoidance</h4>
+        <p>Omnidirectional avoidance using all four ultrasonic sensors.</p>
+      </div>
+      <div class="card mode">
+        <span class="k"><kbd>3</kbd> &middot; Line</span>
+        <h4>Line following</h4>
+        <p>Follows a line with the 3-channel sensor.</p>
+      </div>
+      <div class="card mode">
+        <span class="k"><kbd>4</kbd> &middot; IR remote</span>
+        <h4>Direct driving</h4>
+        <p>Hold a D-pad direction to drive and let go to stop. <kbd>Enter</kbd> swaps left/right between strafing and turning.</p>
+      </div>
+    </div>
+    <p class="muted spaced">The mode keys, music, volume and mute work in every mode. The D-pad and Enter only drive in IR remote mode, so they never fight the web driver or the autonomous logic. There's no key-up over IR, so a 250&nbsp;ms gap with no repeat counts as &ldquo;released&rdquo;. The web page also has a motor lock (password <code>1234</code> by default). The button map is in <code>ir_mapping.txt</code>.</p>
+  </div>
+</section>
+
+<section id="connect">
+  <div class="wrap">
+    <h2>Connect</h2>
+    <h3 class="title">Flash and join her network</h3>
+    <ol class="steps">
+      <li>Install the <a href="https://docs.arduino.cc/software/ide/">Arduino IDE</a> with the ESP32 boards and the <a href="https://acebottteam.github.io/acebott-docs-master/getting%20started/Arduino/Download%20CH340%20Driver%20on%20Windows%20System.html">CH340 driver</a>.</li>
+      <li>ESP32 libraries: <code>IRremote</code> 4.x and <code>Adafruit AHTX0</code>. UNO libraries: <code>SFEMP3Shield</code> and <code>SdFat</code> from the <a href="https://github.com/madsci1016/Sparkfun-MP3-Player-Shield-Arduino-Library">SparkFun MP3 Player Shield</a> library.</li>
+      <li>For the ESP32, pick a bigger app partition under <strong>Tools &rarr; Partition Scheme</strong>: <em>Huge APP (3MB No OTA/1MB SPIFFS)</em> or <em>Minimal SPIFFS (1.9MB APP with OTA)</em>.</li>
+      <li>Flash <code>scripts/esp32</code> and <code>scripts/arduino</code> with the serial link unplugged, reconnect it, power her on and join her WiFi.</li>
+    </ol>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>WiFi SSID</td><td><code>NORA</code></td></tr>
+          <tr><td>Password</td><td><code>12345678</code></td></tr>
+          <tr><td>Control page</td><td><code>http://192.168.4.1:5002</code></td></tr>
+          <tr><td>Fleet registry</td><td><code>http://192.168.4.1:5000</code></td></tr>
+          <tr><td>Bluetooth</td><td>Device <code>NORA</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+<pre><span class="p">$</span> pip install -r requirements.txt
+<span class="p">$</span> python scripts/controller.py              <span class="c"># WiFi</span>
+<span class="p">$</span> python scripts/controller.py --bt COM7    <span class="c"># Bluetooth serial</span></pre>
+    <p class="muted spaced">Connect through <a href="https://github.com/CursedPrograms/RIFT">RIFT</a> at the same address. Board docs: <a href="https://acebottteam.github.io/acebott-docs-master/board/ESP32/QA007%20ESP32%20Max%20V1.0%20Controller%20Board.html">ACEBOTT ESP32 Max V1.0</a>.</p>
+    <figure class="shot">
+      <img src="images/NORA5.jpg" alt="NORA on the floor" loading="lazy">
+      <figcaption>NORA</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="screens">
+  <div class="wrap">
+    <h2>Screens</h2>
+    <h3 class="title">The controllers</h3>
+    <p class="muted">Captured without a robot connected, so live values show their offline state.</p>
+    <div class="screens">
+      <figure class="shot">
+        <img src="images/screenshots/controller-python.png" alt="NORA's controller connection screen" width="422" height="902" loading="lazy">
+        <figcaption>Python controller (WiFi or Bluetooth)</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshots/web-dashboard.png" alt="NORA's web dashboard with distances, modes, music and drive pad" width="1100" height="900" loading="lazy">
+        <figcaption>Web dashboard (served by the ESP32)</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="related">
+  <div class="wrap">
+    <h2>DREAM Robotics</h2>
+    <h3 class="title">The rest of the family</h3>
+    <div class="related">
+      <a href="https://github.com/CursedPrograms/MILA-Robot-v00">MILA-Robot-v00</a>
+      <a href="https://github.com/CursedPrograms/IDA-Robot-v00">IDA-Robot-v00</a>
+      <a href="https://github.com/CursedPrograms/KIDA-Robot-v00">KIDA-Robot-v00</a>
+      <a href="https://github.com/CursedPrograms/KIDA-Robot-v01">KIDA-Robot-v01</a>
+      <a href="https://github.com/CursedPrograms/WHIP-Robot-v00">WHIP-Robot-v00</a>
+      <a href="https://github.com/CursedPrograms/ARM-Robot-v01">ARM-Robot-v01</a>
+      <a href="https://github.com/CursedPrograms/RIFT">RIFT</a>
+      <a href="https://github.com/CursedPrograms/DREAM">DREAM</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="links">
+      <a href="https://github.com/CursedPrograms/NORA-Robot-v00">GitHub</a>
+      <a href="https://x.com/NorowaretaGemu">X: @NorowaretaGemu</a>
+      <a href="https://cursed-entertainment.itch.io/">itch.io</a>
+      <a href="https://ko-fi.com/cursedentertainment">Ko-fi</a>
+      <a href="https://github.com/CursedPrograms/NORA-Robot-v00/blob/main/LICENSE">MIT License</a>
+    </div>
+
+    <div class="logos">
+      <a href="https://ko-fi.com/cursedentertainment">
+        <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support Cursed Entertainment on Ko-fi" width="180" loading="lazy">
+      </a>
+      <a href="https://cursed-entertainment.itch.io/">
+        <img src="https://github.com/CursedPrograms/cursedentertainment/raw/main/images/logos/logo-wide-grey.png" alt="Cursed Entertainment" width="250" loading="lazy">
+      </a>
+      <a href="https://github.com/SynthWomb">
+        <img src="https://github.com/SynthWomb/synth.womb/blob/main/logos/synthwomb07.png?raw=true" alt="SynthWomb" width="200" loading="lazy">
+      </a>
+    </div>
+
+    <div>&copy; Cursed Entertainment 2026</div>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -25,18 +25,17 @@
 
 - Robot Type: Mecanum
 
+<div align="center">
+  <img src="images/nora_avatar.jpg" alt="NORA avatar: a human representation of the robot" width="320"/>
+  <p><i>NORA</i></p>
+</div>
+
 ---
 
 ### Software
 - [Arduino IDE](https://docs.arduino.cc/software/ide/)
 
 ---
-
-https://github.com/madsci1016/Sparkfun-MP3-Player-Shield-Arduino-Library
-
-In the Arduino IDE, go to Tools → Partition Scheme and pick one with a bigger app partition — either:
-- "Huge APP (3MB No OTA/1MB SPIFFS)", or
-- "Minimal SPIFFS (1.9MB APP with OTA)"
 
 ## Related Projects
 
@@ -59,13 +58,17 @@ In the Arduino IDE, go to Tools → Partition Scheme and pick one with a bigger 
 <details>
 <summary><b>Overview</b></summary>
 
-NORA is built on the **ESP32**, utilizing its dual-core processing to handle a custom WiFi Access Point for remote operation while simultaneously managing reactive obstacle avoidance via a 4-sensor ultrasonic array.
+NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest of the fleet joins, runs the fleet registry, and drives four mecanum wheels. An Arduino UNO with a SparkFun MP3 Player Shield reads her four ultrasonic sensors, light and sound sensors, plays music and drives the buzzer, and streams it all to the ESP32.
 
 ### Core Features
-- [x] **Omnidirectional Movement:** Move in any direction without turning.
-- [x] **Self-Hosted AP:** No router required for field operation.
-- [x] **Reactive Safety:** 360° sensor coverage for auto-braking.
-- [x] **Internal UV:** Specialized UV light disinfection capabilities.
+- [x] **Omnidirectional movement:** drive, strafe and turn in place on mecanum wheels.
+- [x] **Self-hosted AP:** no router needed; she is the fleet's network and registry (port `5000`).
+- [x] **Reactive safety:** four HC-SR04 sensors (front, back, left, right) block drive commands that would hit something, with a buzzer warning.
+- [x] **Four drive modes:** Manual (web / Bluetooth), Auto (obstacle avoidance), Line following, IR Remote.
+- [x] **UV light:** off, on or blinking.
+- [x] **Music:** an MP3 player with play, next, previous, stop, repeat and volume. A single clap starts the music.
+- [x] **Environment:** temperature and humidity (AHT10), and ambient light.
+- [x] **Motor lock:** the web page needs a password (`1234` by default) to unlock the motors.
 
 </details>
 
@@ -76,51 +79,30 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 <summary><b>Prerequisites</b></summary>
 
 ### Software
-- [Arduino IDE](https://docs.arduino.cc/software/ide/)
+- [Arduino IDE](https://docs.arduino.cc/software/ide/) with the ESP32 board package
+- ESP32 libraries: `IRremote` 4.x, `Adafruit AHTX0` (`WiFi`, `WebServer`, `Preferences`, `BluetoothSerial` and `Wire` come with the core)
+- UNO libraries: [`SFEMP3Shield` and `SdFat`](https://github.com/madsci1016/Sparkfun-MP3-Player-Shield-Arduino-Library)
+- For the ESP32, pick a bigger app partition under **Tools → Partition Scheme**: *Huge APP (3MB No OTA/1MB SPIFFS)* or *Minimal SPIFFS (1.9MB APP with OTA)*
 
 ### Hardware
 
-### Microcontrollers
 | **Component** | **Details** |
 |-----------|---------|
-| Microcontroller 0 | ESP32 (ACEBOTT QA007 Max Controller Board) | Dev0 |
-| Microcontroller 1 | Arduino UNO | Dev1 |
-
-### Chassis & Motion
-| **Component** | **Details** |
-|-----------|---------|
-| Chassis | Omnidirectional Robot Chassis |
-| Motor Driver | 2x L298N |
-| Motors | 4x 5V DC Motors |
-
-### User Controllers
-| **Component** | **Details** |
-|-----------|---------|
-| Interface | PC, Android, iPhone |
-
-### Power System
-| **Component** | **Details** |
-|-----------|---------|
-| Battery | 2s 18650|
-
-### Sensors
-| **Component** | **Details** |
-|-----------|---------|
-| Ultrasonic Sensors | 4x HC-SR04 (Front, Back, Left, Right)|
-| Line Follower | 3-Channel Line Tracking Sensor |
-
+| Microcontroller 0 | ESP32 (ACEBOTT QA007 Max controller board) |
+| Microcontroller 1 | Arduino UNO + SparkFun MP3 Player Shield (microSD card) |
+| Chassis | Omnidirectional (mecanum) robot chassis |
+| Motor drivers | 2× L298N |
+| Motors | 4× 5 V DC motors |
+| Battery | 2S 18650 |
+| Distance | 4× HC-SR04 (front, back, left, right) |
+| Ground | 3-channel line tracking sensor |
+| Environment | AHT10 temperature / humidity (I2C), photoresistor (LDR) |
+| Sound | Sound sensor module (clap detection), buzzer, speaker on the MP3 shield |
+| Light | UV LED |
+| Remote | NEC IR receiver + remote, IR transmitter LED |
+| Controllers | Web page, Python controller (WiFi or Bluetooth), IR remote |
 
 </details>
-
----
-
-#### Libraries:
-
-- SoftwareSerial.h
-- WiFi.h
-- WebServer.h
-- Preferences.h
-- IRremote.h
 
 ---
 
@@ -137,81 +119,77 @@ NORA is built on the **ESP32**, utilizing its dual-core processing to handle a c
 > **Ground Loop Warning:** All modules must share a common GND. Failure to bridge grounds will cause erratic motor behavior and sensor noise.
 
 <details>
-<summary><b>ESP32 Motor Controller Configuration</b></summary>
+<summary><b>ESP32 wiring</b></summary>
 
-#### L298N-0 (Front Drive)
+#### L298N-0 (front drive)
 | Motor | PWM Pin | Dir 1 | Dir 2 |
 | :--- | :--- | :--- | :--- |
 | **M0** | `GPIO 5` | `GPIO 16` | `GPIO 17` |
 | **M1** | `GPIO 23`| `GPIO 18` | `GPIO 19` |
 
-#### L298N-1 (Rear Drive)
+#### L298N-1 (rear drive)
 | Motor | PWM Pin | Dir 1 | Dir 2 |
 | :--- | :--- | :--- | :--- |
 | **M2** | `GPIO 12` | `GPIO 13` | `GPIO 14` |
 | **M3** | `GPIO 27` | `GPIO 26` | `GPIO 25` |
-</details>
 
-<details>
-<summary><b>UNO Sensor Array Wiring</b></summary>
-
-#### Ultrasonic Sensors
-| Direction | Trigger Pin | Echo Pin |
-| :--- | :--- | :--- |
-| **FRONT** | `A0` | `A1` |
-| **LEFT** | `D6` | `D7` |
-| **BACK** | `A4` | `A5` |
-| **RIGHT** | `A2` | `A3` |
-
-#### Line Follower (left → right)
-| Sensor | Pin |
-| :--- | :--- |
-| **Left** | `D3` |
-| **Middle** | `D4` |
-| **Right** | `D5` |
-
-#### UV Light
+#### Sensors and outputs
 | Component | Pin |
 | :--- | :--- |
-| **UV Light** | `D10` |
+| **Line follower L / M / R** | `GPIO 34` / `GPIO 35` / `GPIO 39` |
+| **UV LED** | `GPIO 4` |
+| **IR receiver OUT** | `GPIO 32` (power it from **3.3 V**, not 5 V) |
+| **IR transmitter LED** | `GPIO 33` (wired up, nothing sends on it yet) |
+| **AHT10 SDA / SCL** | `GPIO 21` / `GPIO 22` |
+| **UNO link** | `RX0` / `TX0` (UART0, 9600 baud) |
+
 </details>
 
 <details>
-<summary><b>ESP32 IR Remote Wiring</b></summary>
+<summary><b>UNO wiring</b></summary>
 
-#### IR Receiver
+#### Ultrasonic sensors
+All four TRIG pins are joined to one shared trigger.
+
+| Signal | Pin |
+| :--- | :--- |
+| **TRIG (all four)** | `A4` |
+| **Front ECHO** | `A0` |
+| **Right ECHO** | `A1` |
+| **Back ECHO** | `A2` |
+| **Left ECHO** | `A3` |
+
+#### Other
 | Component | Pin |
 | :--- | :--- |
-| **Data (OUT)** | `GPIO 32` |
-| **VCC** | `3.3V` (not 5V) |
-| **GND** | `GND` |
+| **Photoresistor (LDR)** | `A5` |
+| **Sound sensor** | `D5` |
+| **Buzzer** | `D10` |
+| **ESP32 link** | `D0` (RX) / `D1` (TX), 9600 baud |
 
-Button layout matches [`ir_mapping.txt`](ir_mapping.txt). `GPIO 21`/`GPIO 22` are
-still free on the board for an IR **transmitter** if one gets added later —
-nothing sends on them yet.
+The MP3 shield reserves `D2`, `D3`, `D4`, `D6`, `D7`, `D8`, `D9`, `D11`, `D12` and `D13`.
+
 </details>
 
 <details>
-<summary><b>ESP32 ↔ Arduino Serial Link</b></summary>
+<summary><b>ESP32 ↔ UNO serial link</b></summary>
 
-Bidirectional UART at 9600 baud. Both devices must share a common GND.
+UART at 9600 baud on the UNO's hardware serial (pins 0/1). Like WHIP, unplug the link before uploading to either board.
 
-| Signal | From | To |
-| :--- | :--- | :--- |
-| Sensor data (TX) | Arduino `D9` (SoftwareSerial TX) | ESP32 `RX` |
-| UV commands (TX) | ESP32 `TX` | Arduino `D8` (SoftwareSerial RX) |
+**UNO → ESP32** (one line per reading):
+```
+F:23.4,L:10.1,B:45.0,R:8.3,MT:101,MS:1,LT:62,SND:0
+```
+Distances in cm, `MT` current track, `MS` music state, `LT` light %, `SND` 1 if a sound was just heard.
 
-**Data format (Arduino → ESP32):**
+**ESP32 → UNO:**
 ```
-F:23.4,L:10.1,B:45.0,R:8.3,LF:010
+M:PLAY  M:NEXT  M:PREV  M:STOP  M:REPEAT     music
+V:UP  V:DOWN  V:MUTE                          volume
+BZ:SPD:<0-100>  BZ:MODE:<0-3>  BZ:UV:<0-2>    buzzer feedback
+BZ:LOCK:<0|1>   BZ:DENIED
 ```
-`LF:` is a 3-digit string — left/mid/right sensor states (0 or 1).
 
-**Command format (ESP32 → Arduino):**
-```
-UV:1   (UV light on)
-UV:0   (UV light off)
-```
 </details>
 
 > [!TIP]
@@ -229,27 +207,29 @@ UV:0   (UV light off)
 | :--- | :--- |
 | **SSID** | `NORA` |
 | **Password** | `12345678` |
+| **Control page** | `http://192.168.4.1:5002` |
+| **Fleet registry** | `http://192.168.4.1:5000` (`/register`, `/robots`, `/ping`) |
+| **Bluetooth** | Device name `NORA` (serial) |
 
 ### RIFT Integration
-To connect via [RIFT](https://github.com/CursedPrograms/RIFT), connect to the `NORA` WiFi network then reach NORA at:
-* `http://192.168.4.1:5002`
+Connect to the `NORA` network, then reach NORA through [RIFT](https://github.com/CursedPrograms/RIFT) at `http://192.168.4.1:5002`. When a RIFT hub is running it takes over as the fleet authority, and NORA defers to it.
 
 ### Drive Modes
-| Mode | Description |
-| :--- | :--- |
-| **Manual** ("Website Control") | D-pad remote control via web UI / Bluetooth |
-| **Auto** | Omnidirectional obstacle avoidance using ultrasonic sensors |
-| **Line** | Line following using the 3-channel IR sensor |
-| **IR Remote** | D-pad + Enter on the physical IR remote drive directly |
+| Key | Mode | Description |
+| :--- | :--- | :--- |
+| `1` | **Manual** | D-pad control from the web page, the Python controller or Bluetooth |
+| `2` | **Auto** | Omnidirectional obstacle avoidance using all four ultrasonic sensors |
+| `3` | **Line** | Line following with the 3-channel sensor |
+| `4` | **IR Remote** | The remote's D-pad drives directly. `Enter` swaps left/right between strafing and turning |
 
-Switch modes from the IR remote with `1` (Manual/Website Control), `2` (Auto),
-`3` (IR Remote). Outside IR Remote mode the remote's D-pad and Enter are
-inert — they never fight the website/BT driver or the autonomous/line logic.
-Music transport, volume, mute, and the mode keys themselves always work no
-matter which drive mode is active. In IR Remote mode, holding a D-pad
-direction keeps driving; letting go stops it (there's no key-up event over
-IR, so the firmware treats a ~250ms gap with no repeat as "released").
-`Enter` swaps Left/Right between strafing and turning in place.
+The mode keys, music, volume and mute work in every mode. The D-pad and Enter only drive in IR Remote mode, so they never fight the web driver or the autonomous logic. There's no key-up over IR, so a 250 ms gap with no repeat counts as "released". The full button map is in [`ir_mapping.txt`](ir_mapping.txt).
+
+### Python controller
+```bash
+pip install -r requirements.txt
+python scripts/controller.py                 # WiFi, NORA at 192.168.4.1:5002
+python scripts/controller.py --bt COM7       # Bluetooth serial instead
+```
 
 </details>
 
@@ -274,6 +254,19 @@ IR, so the firmware treats a ~250ms gap with no repeat as "released").
 <div align="center">
   <img src="images/NORA5.jpg" alt="NORA Robot" width="400"/>
 </div>
+
+---
+
+## Screenshots
+
+<div align="center">
+  <img src="images/screenshots/controller-python.png" alt="Python controller" width="260"/>
+  <img src="images/screenshots/web-dashboard.png" alt="Web dashboard" width="640"/>
+</div>
+
+<p align="center"><i>Python controller, Web dashboard. Captured without a robot connected, so live values show their offline state.</i></p>
+
+---
 
 <br>
 <div align="center">
