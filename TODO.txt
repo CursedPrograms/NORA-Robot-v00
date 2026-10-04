@@ -12,8 +12,8 @@ Use the light sensor to turn on the UV light when dark (and off when bright)
 
 Improve obstacle avoidance (currently inaccurate; the sides scrape walls). It should stop and strafe away if a left/right sensor gets too close to a wall. The stopping distance is also to small it runs into walls.
 
-Use the IR transmitter to steer MILA, KIDA01, WHIP
+[done] Use the IR transmitter to steer MILA, KIDA01, WHIP (fleet link, /link?r=&c=, panel tabs)
 
-If not actively transmitting IR commands, continuously broadcast a signal telling other robots: "Hi, I am here"
+[done] If not actively transmitting IR commands, continuously broadcast a signal telling other robots: "Hi, I am here" (beacon 0x47, round-robin every 2 s)
 
 WiFi/Windows only — no Bluetooth serial transport (that needs separate serial-port code per platform), and no Linux/macOS HTTP backend (would need libcurl instead of WinHTTP). Both are legitimate follow-ups if you want them later.
