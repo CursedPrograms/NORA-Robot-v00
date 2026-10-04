@@ -14,6 +14,7 @@
 <link rel="apple-touch-icon" href="site/apple-touch-icon.png">
 <link rel="stylesheet" href="site/style.css">
 <script src="site/site.js" defer></script>
+<script src="site/player.js" defer></script>
 </head>
 <body>
 
@@ -25,6 +26,7 @@
       <li><a href="#hardware">Hardware</a></li>
       <li><a href="#modes">Modes</a></li>
       <li><a href="#connect">Connect</a></li>
+      <li><a href="#voice">Voice</a></li>
       <li><a href="#screens">Screens</a></li>
       <li><a href="https://github.com/CursedPrograms/NORA-Robot-v00">GitHub</a></li>
     </ul>
@@ -296,6 +298,15 @@ BZ:SPD:&lt;0-100&gt;  BZ:MODE:&lt;0-3&gt;  BZ:UV:&lt;0-2&gt;  BZ:LOCK:&lt;0|1&gt
         <figcaption>Web dashboard (served by the ESP32)</figcaption>
       </figure>
     </div>
+  </div>
+</section>
+
+<section id="voice">
+  <div class="wrap">
+    <h2>Voice</h2>
+    <h3 class="title">What NORA says</h3>
+    <p class="muted">Her spoken lines, played from the MP3 shield's SD card (<code>track200</code>&ndash;<code>track210</code>). Made with <code>make_voice.bat</code> (Windows text-to-speech + ffmpeg).</p>
+    <div class="player" data-tracks='[{"title": "Manual mode", "src": "site/voice/track200.mp3"}, {"title": "Auto mode", "src": "site/voice/track201.mp3"}, {"title": "Line follow mode", "src": "site/voice/track202.mp3"}, {"title": "Remote mode", "src": "site/voice/track203.mp3"}, {"title": "Motors locked", "src": "site/voice/track204.mp3"}, {"title": "Motors unlocked", "src": "site/voice/track205.mp3"}, {"title": "Something&#39;s in the way", "src": "site/voice/track206.mp3"}, {"title": "UV off", "src": "site/voice/track207.mp3"}, {"title": "UV on", "src": "site/voice/track208.mp3"}, {"title": "UV blinking", "src": "site/voice/track209.mp3"}, {"title": "Hello, I&#39;m NORA", "src": "site/voice/track210.mp3"}]'></div>
   </div>
 </section>
 
