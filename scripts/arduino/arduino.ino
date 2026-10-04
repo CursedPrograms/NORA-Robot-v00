@@ -50,6 +50,10 @@
  *   track000.mp3            -> startup sound
  *   track100.mp3, track101.mp3, track102.mp3 ...  -> music library
  *   (music tracks must be numbered consecutively from 100)
+ *   track200.mp3 ... track231.mp3 -> NORA's voice (make them with
+ *   make_voice.bat; the list of lines lives in scripts/make_voice.ps1).
+ *   Any line that's missing falls back to the old beep, and she never
+ *   talks over music. Also: SAY:<n> plays voice line n.
  */
 
 #include <SPI.h>
@@ -141,6 +145,31 @@ bool repeatMode  = false;  // true: replay curTrack on end instead of advancing
 int  volume = VOLUME_MIN;   // current volume (0 = max, matches old hardcoded startup value)
 bool muted  = false;        // true: hardware register forced quiet, `volume` itself untouched
 
+// ---- NORA's spoken voice (track200+ on the SD card) ----
+// Line numbers -- keep in step with scripts/make_voice.ps1.
+#define FIRST_VOICE_TRACK 200
+#define VOICE_MODE_0      0    // 0-3: Manual / Auto / Line / Remote mode
+#define VOICE_LOCKED      4
+#define VOICE_UNLOCKED    5
+#define VOICE_BLOCKED     6
+#define VOICE_UV_0        7    // 7-9: UV off / on / blinking
+#define VOICE_HELLO       10
+uint32_t voiceHave    = 0;      // bit n set: track(200+n).mp3 is on the card
+bool     voicePlaying = false;  // a voice line (not music) is playing
+bool     greetPending = false;  // say hello once the startup sound ends
+unsigned long lastBlockedSayMs = 0;
+
+// Plays voice line n. False if it isn't on the card or music is on (she
+// doesn't cut into a song) -- the caller beeps instead.
+bool sayVoice(int n) {
+  if (n < 0 || n > 31 || !(voiceHave & (1UL << n))) return false;
+  if (inMusicMode) return false;
+  MP3player.stopTrack();
+  MP3player.playTrack(FIRST_VOICE_TRACK + n);
+  voicePlaying = true;
+  return true;
+}
+
 String cmdBuffer = "";
 
 void setup() {
@@ -169,8 +198,13 @@ void setup() {
         if (!sd.exists(name)) break;
         maxTrack = i;
       }
+      for (int n = 0; n < 32; n++) {
+        sprintf(name, "track%03d.mp3", FIRST_VOICE_TRACK + n);
+        if (sd.exists(name)) voiceHave |= 1UL << n;
+      }
 
       MP3player.playTrack(0);        // startup sound
+      greetPending = true;
     }
   }
 }
@@ -186,6 +220,16 @@ void loop() {
       cmdBuffer = "";
     } else if (c != '\r') {
       cmdBuffer += c;
+    }
+  }
+
+  // ---- Voice: notice a line finishing, and greet after the startup sound ----
+  if ((voicePlaying || greetPending) && MP3player.getState() == ready) {
+    if (voicePlaying) soundMuteUntil = millis() + 300;   // her own voice isn't a clap
+    voicePlaying = false;
+    if (greetPending) {
+      greetPending = false;
+      sayVoice(VOICE_HELLO);
     }
   }
 
@@ -264,7 +308,7 @@ void pollDuring(unsigned long ms) {
   while (millis() - start < ms) {
     stepTalk();
     bool level = (digitalRead(SOUND_PIN) == HIGH);
-    if (level && !lastSoundLevel && millis() - lastSoundMs > 120 && millis() >= soundMuteUntil) {
+    if (level && !lastSoundLevel && millis() - lastSoundMs > 120 && millis() >= soundMuteUntil && !voicePlaying) {
       lastSoundMs = millis();
       soundEvent  = true;
     }
@@ -285,17 +329,17 @@ void handleCommand(String cmd) {
   }
   if (cmd.startsWith("BZ:MODE:")) {
     int m = constrain(cmd.substring(8).toInt(), 0, 3);
-    oneShotBeep(700 + m * 200, 90);
+    if (!sayVoice(VOICE_MODE_0 + m)) oneShotBeep(700 + m * 200, 90);
     return;
   }
   if (cmd.startsWith("BZ:UV:")) {
     int s = constrain(cmd.substring(6).toInt(), 0, 2);
-    oneShotBeep(500 + s * 250, 70);
+    if (!sayVoice(VOICE_UV_0 + s)) oneShotBeep(500 + s * 250, 70);
     return;
   }
   if (cmd.startsWith("BZ:LOCK:")) {
     bool locked = cmd.substring(8).toInt() == 1;
-    oneShotBeep(locked ? 300 : 950, locked ? 180 : 90);
+    if (!sayVoice(locked ? VOICE_LOCKED : VOICE_UNLOCKED)) oneShotBeep(locked ? 300 : 950, locked ? 180 : 90);
     return;
   }
   if (cmd.startsWith("BZ:TALK:")) {
@@ -303,7 +347,13 @@ void handleCommand(String cmd) {
     return;
   }
   if (cmd == "BZ:DENIED") {
-    oneShotBeep(220, 150);   // low "no" -- a blocked Manual/Remote drive attempt
+    // a held drive key repeats this several times a second -- say it once, beep the rest
+    if (millis() - lastBlockedSayMs > 3000 && sayVoice(VOICE_BLOCKED)) lastBlockedSayMs = millis();
+    else oneShotBeep(220, 150);   // low "no" -- a blocked Manual/Remote drive attempt
+    return;
+  }
+  if (cmd.startsWith("SAY:")) {
+    sayVoice(cmd.substring(4).toInt());
     return;
   }
 
