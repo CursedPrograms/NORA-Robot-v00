@@ -218,7 +218,7 @@ Preferences prefs;
 // FLEET TEXT MESSAGES
 // =====================
 // NORA has no display/speaker, so incoming "/message" text just lands in a
-// small ring buffer that other fleet nodes (RIFT, ComCentre) can poll via
+// small ring buffer that other fleet nodes (RIFT, DREAM) can poll via
 // "/messages" — a lightweight message board rather than something acted on.
 #define MESSAGE_LOG_SIZE 10
 String messageLog[MESSAGE_LOG_SIZE];
@@ -536,7 +536,7 @@ void setup() {
     server.send(200, "text/plain", "OK");
   });
 
-  // Generic serial passthrough — lets fleet controllers (RIFT, ComCentre)
+  // Generic serial passthrough — lets fleet controllers (RIFT, DREAM)
   // send any command string straight to the onboard Arduino over UART,
   // beyond the hardcoded M:*/UV:* commands above.
   server.on("/serial", []() {
