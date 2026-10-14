@@ -6,6 +6,7 @@
  *   2. Music player: track100.mp3 and above are music tracks,
  *      controlled by the ESP32 over serial:
  *        M:PLAY M:NEXT M:PREV M:STOP M:REPEAT (toggle repeat-current-track)
+ *        M:TRACK:<n> play track n (100+) from the start: RIFT's music together
  *        V:UP V:DOWN (volume nudge)  V:MUTE (toggle)
  *   3. Read 4 ultrasonic sensors (normal 2-wire hookup) and stream to ESP32
  *   4. Buzzer feedback (pin 10): an ambient "something's close" tone driven
@@ -414,6 +415,15 @@ void handleCommand(String cmd) {
     MP3player.stopTrack();
     inMusicMode = false;
     oneShotBeep(400, 80);
+  }
+  else if (cmd.startsWith("M:TRACK:")) {   // RIFT sends it at the shared start moment
+    int n = cmd.substring(8).toInt();
+    if (n >= FIRST_MUSIC_TRACK && n <= maxTrack) {
+      curTrack = n;
+      inMusicMode = true;
+      MP3player.stopTrack();
+      MP3player.playTrack(curTrack);
+    }
   }
   else if (cmd == "M:REPEAT") {
     repeatMode = !repeatMode;

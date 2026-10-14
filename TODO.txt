@@ -27,3 +27,5 @@ WiFi/Windows only — no Bluetooth serial transport (that needs separate serial-
 UV BLINK may be restarting her (power dip?) - check if UV ON does it too; drive the UV LED through a transistor
 
 Left ultrasonic reads -1 (no echo) - check its wiring
+
+M:TRACK:<n> (play track n from the start) added to arduino.ino for RIFT's music together - compiles, NOT flashed yet: needs the user's OK (2026-10-14)
