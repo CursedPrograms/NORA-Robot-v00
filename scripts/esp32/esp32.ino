@@ -1,4 +1,12 @@
 #include <WiFi.h>
+#include <HTTPClient.h>
+// WiFi names, passwords and the wheel-lock password: secrets.h (git ignores it),
+// else the placeholders in secrets.example.h.
+#if __has_include("secrets.h")
+#include "secrets.h"
+#else
+#include "secrets.example.h"
+#endif
 #include <WebServer.h>
 #include <Preferences.h>
 #include "BluetoothSerial.h"
@@ -31,8 +39,24 @@ BluetoothSerial SerialBT;
 // =====================
 // WIFI
 // =====================
-const char* ap_ssid = "NORA";
-const char* ap_password = "12345678";
+// The fleet's ladder: RIFT > DREAM > NINA > TINA (the hub, the virtual bots)
+// > NORACTL > WHIPCTL > KIDA01CTL > KIDA00CTL > ARMCTL (the PC controllers, in their bots' order)
+// > NORA > WHIP > KIDA01 > KIDA00 > ARM > MILA (the real bots). Every
+// robot joins the highest network it sees above itself; with none, it hosts its own
+// and the fleet list (/register, /robots on :5000) so the ones below find each other.
+// Above NORA are RIFT (FLEET_SSID, the router), DREAM, NINA, TINA and the controllers; everyone uses the
+// fleet password. If neither is around she hosts NORA_AP_SSID (192.168.4.1) as before,
+// and keeps looking: when a higher network shows up she restarts into it (parked only).
+const char* ap_ssid = NORA_AP_SSID;
+const char* ap_password = NORA_AP_PASSWORD;
+const char* const ABOVE_NORA[] = { FLEET_SSID, "DREAM", "NINA", "TINA", "NORACTL", "WHIPCTL", "KIDA01CTL", "KIDA00CTL", "ARMCTL" };   // highest first
+const uint16_t RIFT_PORT = 5000;                             // the fleet list, on whoever hosts
+const unsigned long FLEET_JOIN_MS = 20000;     // at boot: how long to try RIFT's network
+const unsigned long RIFT_SCAN_MS = 30000;      // on her own network: look for RIFT this often
+const unsigned long RIFT_REGISTER_MS = 10000;  // on RIFT's network: heartbeat (RIFT drops entries after 20 s)
+const unsigned long NET_LOST_MS = 60000;       // the network above her, or its fleet list, silent this long: climb again
+bool onRift = false;                           // joined a network above her (false = hosting her own)
+int  joinedRank = -1;                          // which: 0 = RIFT, 1 = DREAM, 2 = NINA, 3 = TINA, 4+ = the controllers
 WebServer server(5002);
 
 // =====================
@@ -66,6 +90,13 @@ void turnRight(int scale = 100);
 void stopMotors();
 void setMotor(int ena, int pin1, int pin2, int s1, int s2, int speed, int scale = 100);
 bool motorsMoving = false;   // any wheel driven right now (what she tells the fleet: parked or moving)
+// What the UNO last reported about its SD card and music (-1 = an older UNO sketch that doesn't say)
+int sdOk = -1, sdTracks = -1;
+// The last IR frame heard, whatever it was (shown in /sensors, to see whether a remote is heard and what it sends)
+unsigned long irFrames = 0;
+String irLastProto = "";
+uint16_t irLastAddr = 0;
+uint16_t irLastCmd = 0;
 
 // =====================
 // LINE FOLLOWER (on ESP32)
@@ -247,7 +278,6 @@ String jsonEscape(const String& in) {
 // Locking is always allowed with no password; unlocking requires one,
 // checked here in firmware so every client (web, pygame, raw BT/HTTP)
 // is held to the same gate instead of trusting each app to enforce it.
-#define MOTOR_PASSWORD "1234"
 bool motorLocked = true;
 bool btAwaitingPw = false;
 String btPwBuffer = "";
@@ -469,8 +499,7 @@ void setup() {
   prefs.end();
 
   randomSeed(esp_random());  // the conversations shouldn't repeat every boot
-  WiFi.softAP(ap_ssid, ap_password);
-  fleetNearBegin("NORA", WIFI_IF_AP);   // she hosts the network, so ESP-NOW rides on her AP's channel
+  setupWiFi();   // RIFT's network, or her own (ESP-NOW rides on whichever)
   SerialBT.begin("NORA");  // Bluetooth device name shown when pairing
   fleetNearBleBegin("NORA");  // BLE beacon + gentle scan, alongside the classic Bluetooth above
   IrReceiver.begin(IR_RECEIVE_PIN, DISABLE_LED_FEEDBACK);
@@ -668,7 +697,10 @@ void setup() {
   });
 
   server.on("/sensors", []() {
-    String json = "{\"F\":" + String(front_cm, 1) + ",\"L\":" + String(left_cm, 1) + ",\"B\":" + String(back_cm, 1) + ",\"R\":" + String(right_cm, 1) + ",\"lfl\":" + String(lf_l) + ",\"lfm\":" + String(lf_m) + ",\"lfr\":" + String(lf_r) + ",\"mode\":" + String((int)driveMode) + ",\"dir\":" + String(autoDir) + ",\"uv\":" + String(uvMode) + ",\"mt\":" + String(musicTrack) + ",\"ms\":" + String(musicState) + ",\"lt\":" + String(lightPct) + ",\"snd\":" + String(soundRecent ? 1 : 0) + ",\"lock\":" + String(motorLocked ? 1 : 0) + ",\"spd\":" + String(speedPct) + ",\"temp\":" + String(tempC, 1) + ",\"hum\":" + String(humidity, 1) + ",\"msrc\":\"" + modeSource + "\"}";
+    String json = "{\"F\":" + String(front_cm, 1) + ",\"L\":" + String(left_cm, 1) + ",\"B\":" + String(back_cm, 1) + ",\"R\":" + String(right_cm, 1) + ",\"lfl\":" + String(lf_l) + ",\"lfm\":" + String(lf_m) + ",\"lfr\":" + String(lf_r) + ",\"mode\":" + String((int)driveMode) + ",\"dir\":" + String(autoDir) + ",\"uv\":" + String(uvMode) + ",\"mt\":" + String(musicTrack) + ",\"ms\":" + String(musicState) + ",\"lt\":" + String(lightPct) + ",\"snd\":" + String(soundRecent ? 1 : 0) + ",\"lock\":" + String(motorLocked ? 1 : 0) + ",\"spd\":" + String(speedPct) + ",\"temp\":" + String(tempC, 1) + ",\"hum\":" + String(humidity, 1) + ",\"msrc\":\"" + modeSource + "\"" +
+                  ",\"sd\":" + String(sdOk) + ",\"nt\":" + String(sdTracks) +
+                  ",\"irn\":" + String(irFrames) + ",\"irp\":\"" + irLastProto + "\",\"ira\":" + String(irLastAddr) +
+                  ",\"irc\":" + String(irLastCmd) + "}";
     server.send(200, "application/json", json);
   });
 
@@ -745,11 +777,24 @@ void loop() {
   bool selfDriving = driveMode == MODE_AUTO || driveMode == MODE_LINE;
   fleetNearSetState((motorLocked || (!motorsMoving && !selfDriving)) ? FLEET_PARKED
                     : selfDriving ? FLEET_DRIVING : FLEET_USER);
+
+  // The UNO's "something's close" tone only while she's moving and unlocked:
+  // tell it when that changes, and every 5 s in case it rebooted.
+  static int proxSent = -1;
+  static unsigned long proxSentMs = 0;
+  int proxNow = (!motorLocked && (motorsMoving || selfDriving)) ? 1 : 0;
+  if (proxNow != proxSent || millis() - proxSentMs > 5000) {
+    Serial.print("BZ:PROX:");
+    Serial.println(proxNow);
+    proxSent = proxNow;
+    proxSentMs = millis();
+  }
   fleetNearLoop();
   fleetNearBleLoop();
   radarLoop();
   server.handleClient();
   fleetServer.handleClient();
+  fleetNetworkLoop();
   handleBluetooth();
   handleIR();
   readSerialSensors();
@@ -1184,6 +1229,11 @@ String talkJson() {
 void handleIR() {
   if (!IrReceiver.decode()) return;
 
+  irFrames++;   // everything heard, obeyed or not
+  irLastProto = String(getProtocolString(IrReceiver.decodedIRData.protocol));
+  irLastAddr  = IrReceiver.decodedIRData.address;
+  irLastCmd   = IrReceiver.decodedIRData.command;
+
   // our own link frames (a reflection off a nearby wall) aren't commands for NORA
   if (IrReceiver.decodedIRData.protocol == SAMSUNG && isLinkAddress(IrReceiver.decodedIRData.address)) {
     IrReceiver.resume();
@@ -1314,6 +1364,9 @@ void parseSensorLine(String line) {
 
   float lt = extractFloat("LT");
   if (lt >= 0) lightPct = (int)lt;
+  float sd = extractFloat("SD"), nt = extractFloat("NT");
+  if (sd >= 0) sdOk = (int)sd;
+  if (nt >= 0) sdTracks = (int)nt;
 
   // ---- Sound event: edge-detected + debounced on the Arduino already,
   // we just run the clap-count timing off of this latched flag.
@@ -1588,6 +1641,91 @@ String fleetCapsToJsonArray(const String& caps) {
   return out;
 }
 
+// ---- The fleet's network --------------------------------------------------
+IPAddress myIP() { return onRift ? WiFi.localIP() : WiFi.softAPIP(); }
+
+// Index in ABOVE_NORA of the highest of those networks in the last scan, or -1.
+int bestAbove(int n) {
+  int best = -1;
+  for (int i = 0; i < n; i++)
+    for (int r = 0; r < (int)(sizeof(ABOVE_NORA) / sizeof(ABOVE_NORA[0])); r++)
+      if (WiFi.SSID(i) == ABOVE_NORA[r] && (best < 0 || r < best)) best = r;
+  return best;
+}
+
+void setupWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  int n = WiFi.scanNetworks();
+  int rank = bestAbove(n);
+  WiFi.scanDelete();
+  if (rank < 0) rank = 0;   // nothing seen: still give RIFT a try (it may be slow to show up)
+  for (; rank < (int)(sizeof(ABOVE_NORA) / sizeof(ABOVE_NORA[0])); rank++) {
+    WiFi.begin(ABOVE_NORA[rank], FLEET_PASSWORD);
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < FLEET_JOIN_MS) delay(250);
+    if (WiFi.status() == WL_CONNECTED) {
+      onRift = true;
+      joinedRank = rank;
+      fleetNearBegin("NORA", WIFI_IF_STA);
+      return;
+    }
+    WiFi.disconnect(false);
+  }
+  WiFi.disconnect(false);
+  WiFi.setAutoReconnect(false);
+  WiFi.mode(WIFI_AP_STA);   // AP for the robots; STA only so she can scan for RIFT
+  WiFi.softAP(ap_ssid, ap_password, 1, 0, 8);   // channel 1, visible, up to 8 robots (the default is 4)
+  onRift = false;
+  fleetNearBegin("NORA", WIFI_IF_AP);   // she hosts the network, so ESP-NOW rides on her AP's channel
+}
+
+// On a network above her: tell its fleet list she's here, like every other robot,
+// and on a lower one keep an eye out for a higher one. On her own: look for either now and then.
+// Moving up is a restart, only while she's parked.
+void fleetNetworkLoop() {
+  static unsigned long lastMs = 0;
+  static unsigned long lastScanMs = 0;
+  if (onRift && joinedRank > 0 && millis() - lastScanMs > 2 * RIFT_SCAN_MS) {   // not on RIFT: is a higher one back?
+    lastScanMs = millis();
+    int n = WiFi.scanComplete();
+    if (n == WIFI_SCAN_FAILED) WiFi.scanNetworks(true);
+    else if (n >= 0) {
+      int best = bestAbove(n);
+      WiFi.scanDelete();
+      if (best >= 0 && best < joinedRank && !motorsMoving && driveMode != MODE_AUTO && driveMode != MODE_LINE) ESP.restart();
+    }
+  }
+  if (onRift) {
+    // Still connected? Is the host still answering? Every heartbeat tells: no WiFi, or no fleet list
+    // that takes her /register, for NET_LOST_MS and she starts over (a restart: climb, else host).
+    static unsigned long goneSince = 0;
+    bool up = WiFi.status() == WL_CONNECTED;
+    if (!up && !goneSince) goneSince = millis();
+    if (goneSince && millis() - goneSince > NET_LOST_MS
+        && !motorsMoving && driveMode != MODE_AUTO && driveMode != MODE_LINE) ESP.restart();
+    if (millis() - lastMs < RIFT_REGISTER_MS || !up) return;
+    lastMs = millis();
+    HTTPClient http;
+    http.setTimeout(1500);
+    http.begin(String("http://") + WiFi.gatewayIP().toString() + ":" + RIFT_PORT + "/register");   // whoever hosts
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    int code = http.POST("name=NORA&type=omni&capabilities=obstacle_avoidance,line_follow,uv_light,music,ir_link,web:5002,talk:5002");
+    http.end();
+    if (code == 200) goneSince = 0;
+    else if (!goneSince) goneSince = millis();
+    return;
+  }
+  if (millis() - lastMs < RIFT_SCAN_MS) return;
+  lastMs = millis();
+  int n = WiFi.scanComplete();
+  if (n == WIFI_SCAN_FAILED) { WiFi.scanNetworks(true); return; }   // start one; read it next time
+  if (n < 0) return;                                                // still scanning
+  bool seen = bestAbove(n) >= 0;
+  WiFi.scanDelete();
+  if (seen && !motorsMoving && driveMode != MODE_AUTO && driveMode != MODE_LINE) ESP.restart();
+}
+
 void setupFleetServer() {
   fleetServer.on("/ping", []() {
     fleetServer.send(200, "text/plain", "NORA alive");
@@ -1609,7 +1747,7 @@ void setupFleetServer() {
     fleetPrune();
 
     String json = "{\"authority\":\"" + authorityName + "\",\"robots\":[";
-    json += "{\"name\":\"NORA\",\"type\":\"omni\",\"ip\":\"" + WiFi.softAPIP().toString() + "\",\"capabilities\":[\"obstacle_avoidance\",\"line_follow\",\"uv_light\",\"music\"]}";
+    json += "{\"name\":\"NORA\",\"type\":\"omni\",\"ip\":\"" + myIP().toString() + "\",\"capabilities\":[\"obstacle_avoidance\",\"line_follow\",\"uv_light\",\"music\"]}";
 
     // While someone else is the live authority, don't also author a
     // competing roster — just point callers at her. Entries registered
@@ -2119,7 +2257,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
   function pollTalk() { fetch('/talk').then(r => r.json()).then(showTalk).catch(() => {}); }
   function sayHi() { fetch('/talk?r=' + linkRobot + '&p=hello').then(r => r.json()).then(showTalk).catch(() => {}); }
   pollTalk();
-  setInterval(pollTalk, 3000);
+  setInterval(() => { if (!document.hidden) pollTalk(); }, 3000);
   function idaStart(c) {
     if (idaActive === c) return;
     idaStop(false);
@@ -2242,7 +2380,9 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       st.className   = msClasses[d.ms] || '';
     }).catch(() => {});
   }
-  setInterval(updateSensors, 500);
+  // once a second, and not at all while the tab is hidden: her one-at-a-time web
+  // server is shared with RIFT, NINA and the other pages
+  setInterval(() => { if (!document.hidden) updateSensors(); }, 1000);
   updateSensors();
 </script>
 </body>

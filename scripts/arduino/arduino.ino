@@ -86,6 +86,11 @@ unsigned long lastSoundMs = 0;
 // highest pitch, above OBSTACLE_WARN_CM it's silent, linear in between.
 #define OBSTACLE_WARN_CM  25.0
 #define OBSTACLE_STOP_CM  8.0
+// Only while she's moving and her wheels are free: the ESP32 knows that and
+// sends BZ:PROX:1 / BZ:PROX:0 (resent every few seconds). Off until it does,
+// so a parked or locked NORA next to a wall stays quiet.
+bool proxOn = false;
+bool sdOk   = false;   // SD card + MP3 shield started (reported as SD: to the ESP32)
 // While a one-shot beep (BZ:* or a music/volume blip) is still "owed" its
 // duration, the ambient obstacle tone backs off instead of talking over it.
 unsigned long buzzOverrideUntil = 0;
@@ -191,6 +196,7 @@ void setup() {
  if (sd.begin(SD_SEL, SPI_HALF_SPEED) && sd.chdir("/")) {
     uint8_t r = MP3player.begin();
     if (r == 0 || r == 6) {          // 6 = no patch file, still plays fine
+      sdOk = true;
       MP3player.setVolume(volume, volume);
 
       char name[13];
@@ -267,7 +273,7 @@ void loop() {
     for (int i = 0; i < 4; i++) {
       if (dists[i] > 0 && (minD < 0 || dists[i] < minD)) minD = dists[i];
     }
-    if (minD > 0 && minD < OBSTACLE_WARN_CM) {
+    if (proxOn && minD > 0 && minD < OBSTACLE_WARN_CM) {
       tone(BUZZER_PIN, obstacleFreq(minD), 90);   // re-triggered every loop while close
     } else {
       noTone(BUZZER_PIN);
@@ -294,7 +300,9 @@ void loop() {
   Serial.print(",MT:"); Serial.print(curTrack);
   Serial.print(",MS:"); Serial.print(ms);
   Serial.print(",LT:"); Serial.print(lightPct);
-  Serial.print(",SND:"); Serial.println(sndOut ? 1 : 0);
+  Serial.print(",SND:"); Serial.print(sndOut ? 1 : 0);
+  Serial.print(",SD:");  Serial.print(sdOk ? 1 : 0);
+  Serial.print(",NT:");  Serial.println(maxTrack ? maxTrack - FIRST_MUSIC_TRACK + 1 : 0);   // music tracks found
 
   pollDuring(100);
 }
@@ -343,6 +351,11 @@ void handleCommand(String cmd) {
     if (!sayVoice(locked ? VOICE_LOCKED : VOICE_UNLOCKED)) oneShotBeep(locked ? 300 : 950, locked ? 180 : 90);
     return;
   }
+  if (cmd.startsWith("BZ:PROX:")) {
+    proxOn = cmd.substring(8).toInt() == 1;
+    if (!proxOn && millis() >= buzzOverrideUntil) noTone(BUZZER_PIN);
+    return;
+  }
   if (cmd.startsWith("BZ:TALK:")) {
     startTalk(cmd.substring(8).toInt());
     return;
@@ -387,7 +400,10 @@ void handleCommand(String cmd) {
     return;
   }
 
-  if (maxTrack == 0) return;   // no music tracks on the card
+  if (maxTrack == 0) {          // no SD card, or no track100+.mp3 on it: say so instead of doing nothing
+    if (cmd.startsWith("M:")) oneShotBeep(220, 250);
+    return;
+  }
 
   if (cmd == "M:PLAY") {
     state_m st = MP3player.getState();

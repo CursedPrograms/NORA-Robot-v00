@@ -495,7 +495,11 @@ def main():
                     help="skip the picker and connect over WiFi")
     ap.add_argument("--bt", metavar="SERIAL_PORT",
                     help="skip the picker and connect over this serial port")
+    ap.add_argument("--ladder", action="store_true",
+                    help="join / host the fleet's WiFi (fleet_ladder.py; FLEET_LADDER=1 does the same)")
     args = ap.parse_args()
+    from fleet_ladder import FleetLadder   # the fleet's WiFi ladder (fleet TODO, section 2)
+    FleetLadder("NORACTL", enabled=args.ladder or None).start()
 
     pygame.init()
     screen = pygame.display.set_mode((WIN_W, H))
