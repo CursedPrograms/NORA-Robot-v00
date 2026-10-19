@@ -49,7 +49,7 @@ import time
 import pygame
 
 import keymap   # scripts/keymap.py: the keymap window (F1)
-from gamepad_drive import PadDrive   # any gamepad, or ARM's flight stick
+from gamepad_drive import PadDrive, rumble_level   # any gamepad, or ARM's flight stick
 
 # ----------------------------------------------------------------------------
 # Transports
@@ -857,6 +857,9 @@ def main():
         # ---- draw ----
         screen.fill(BG)
         t = link.telemetry()
+        # the pad buzzes as she nears a wall in the way it drives her (gamepad_drive.rumble_level)
+        side = {"fw": "F", "bw": "B", "left": "L", "right": "R"}.get(pad_drive)
+        pad.rumble(*rumble_level(t.get(side) if side else None))
 
         # another client (web dashboard, IR remote) may have changed mode,
         # UV, speed, or the motor lock -- reflect it here instead of showing
