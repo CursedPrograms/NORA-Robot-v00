@@ -231,6 +231,7 @@ unsigned long pendingLinkAt = 0;
 #define IR_PREV 0xE
 #define IR_FFWD 0x1E
 #define IR_REWIND 0xA
+#define IR_5 0x19   // the wheel lock, on and off: one button, no PIN (the lock is a safety catch, not security)
 
 #define IR_DRIVE_TIMEOUT_MS 250  // stop if no drive repeat arrives within this long (no key-up event over IR)
 
@@ -1307,6 +1308,13 @@ void handleIR() {
             break;
           case IR_4:
             setDriveMode(MODE_IR, "ir");
+            break;
+
+          // ---- the wheel lock: 5 frees her wheels, 5 again locks them (always allowed) ----
+          case IR_5:
+            motorLocked = !motorLocked;
+            if (motorLocked) stopMotors();
+            notifyLock();
             break;
 
           // ---- music, forwarded to the Arduino (always allowed) ----

@@ -281,13 +281,14 @@ Every key, remote button and Bluetooth letter. The same list opens in its own wi
 | Left / Right | strafe or turn (IR mode, hold) |
 | Enter | switch Left / Right between strafing and turning |
 | 1 / 2 / 3 / 4 | Manual / Auto / Line / IR-remote mode |
+| 5 | the wheel lock: unlock / lock (one button, no PIN) |
 | Play/Pause | play / pause music |
 | Stop | stop music |
 | Next / FFWD | next track |
 | Prev / Rewind | previous track |
 | Repeat | repeat the song |
 | Vol+ / Vol- / Mute | volume |
-| | *the wheel lock blocks driving here too; unlocking from the remote: still to come* |
+| | *the wheel lock blocks driving here too: 5 frees the wheels* |
 
 **Bluetooth serial (the controller's BT link)**
 
