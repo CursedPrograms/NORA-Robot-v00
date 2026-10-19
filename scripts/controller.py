@@ -27,6 +27,7 @@ CONTROLS (mirrors the web dashboard exactly -- same keys, same meanings)
   U            cycle UV                    1/2/3/4      manual / auto / line / remote mode
   +/-          speed nudge (BT only --      Esc          quit
                BT has no absolute "set speed", just a relative step)
+  F1           every key, remote button and BT letter, in its own window (scripts/keymap.py)
   Everything is also clickable with the mouse.
 
   Mode 4 (remote/IR) hands driving to the physical IR receiver, same as
@@ -46,6 +47,9 @@ import threading
 import time
 
 import pygame
+
+import keymap   # scripts/keymap.py: the keymap window (F1)
+from gamepad_drive import PadDrive   # any gamepad, or ARM's flight stick
 
 # ----------------------------------------------------------------------------
 # Transports
@@ -250,7 +254,8 @@ class BtLink:
         self._send("K" if locked else "V" + (pw or ""))
 
     IDA = {"fw": "F", "bw": "B", "left": "L", "right": "R",
-           "stop": "S", "auto": "O", "manual": "W", "speed": "X"}
+           "stop": "S", "auto": "O", "manual": "W", "speed": "X",
+           "unlock": "U", "lock": "K"}
 
     def ida(self, c):          # IDA link over BT: 'I' + one letter
         self._send("I" + self.IDA[c])
@@ -699,7 +704,9 @@ def main():
     add((W + IDA_W - 44, 52, 30, 40), ">", lambda: select_robot(1))
     add((ix, 215, 100, 34), "MANUAL", lambda: ida_send("manual"))
     add((ix + 106, 215, 100, 34), "AUTO", lambda: ida_send("auto"))
-    add((ix, 255, 206, 34), "SPEED", lambda: ida_send("speed"))
+    add((ix, 255, 66, 34), "SPEED", lambda: ida_send("speed"))
+    add((ix + 70, 255, 66, 34), "UNLOCK", lambda: ida_send("unlock"))   # the picked robot's wheels
+    add((ix + 140, 255, 66, 34), "LOCK", lambda: ida_send("lock"))
     ibs, igap, ipy = 60, 6, 395      # IDA pad: button size, gap, centre y
     ida_btns = {}
     for c, (dx, dy), lbl in (("fw", (0, -1), "^"), ("bw", (0, 1), "v"),
@@ -729,10 +736,14 @@ def main():
         speed = max(0, min(100, pct))
         link.speed(speed)
 
+    pad = PadDrive()          # a gamepad / joystick: drives like the keys (keymap.py, Gamepad)
+    pad_drive = None          # the drive the pad is holding
+
     running = True
     while running:
         now = time.time()
         for ev in pygame.event.get():
+            pad.handle(ev)
             if ev.type == pygame.QUIT:
                 running = False
 
@@ -759,6 +770,8 @@ def main():
                     continue
                 if ev.key == pygame.K_ESCAPE:
                     running = False
+                elif ev.key == pygame.K_F1:
+                    keymap.open_window()   # every key, remote button and BT letter, in its own window
                 elif ev.key in key_drive and mode == "Manual":
                     start_drive(key_drive[ev.key])
                 elif ev.key == pygame.K_TAB:
@@ -768,6 +781,8 @@ def main():
                 elif ev.key == pygame.K_o: ida_send("auto")
                 elif ev.key == pygame.K_p: ida_send("manual")
                 elif ev.key == pygame.K_y: ida_send("speed")
+                elif ev.key == pygame.K_g: ida_send("unlock")   # the picked robot's wheels
+                elif ev.key == pygame.K_v: ida_send("lock")
                 elif ev.key == pygame.K_SPACE:
                     link.music("Play")   # play/pause toggle, matches the website
                 elif ev.key == pygame.K_1: set_mode("Manual")
@@ -813,6 +828,23 @@ def main():
 
             elif ev.type == pygame.MOUSEMOTION and dragging_slider:
                 set_speed_from_mouse(ev.pos[0])
+
+        # gamepad: the stick / D-pad drives (Manual mode, like the keys), buttons do the rest
+        if not pw_prompt:
+            d = pad.direction() if mode == "Manual" and not motor_locked else None
+            if d != pad_drive:
+                if d:
+                    start_drive(d)
+                elif active_drive == pad_drive:
+                    stop_drive()
+                pad_drive = d
+            for b in pad.presses():
+                if b == 0: stop_drive(); link.stop()
+                elif b == 1: cycle_uv()
+                elif b == 2: link.music("Play")
+                elif b == 3: link.music("Next")
+                elif b == 6: set_mode("Auto")
+                elif b == 7: set_mode("Manual")
 
         # repeat held drive command every 150ms like the website
         if active_drive and mode == "Manual" and now - last_repeat > 0.15:
@@ -965,7 +997,7 @@ def main():
             pygame.draw.rect(screen, robot_col, ida_btns[ida_active].rect, 3, border_radius=6)
 
         hint = f_sml.render(
-            "WASD drive · Q/E turn · space play · M next · X speed · U uv · 1-4 mode",
+            "WASD drive · Q/E turn · space play · M next · X speed · U uv · 1-4 mode · F1 all keys",
             True, DIM)
         screen.blit(hint, hint.get_rect(centerx=WIN_W // 2, y=H - 28))
 
