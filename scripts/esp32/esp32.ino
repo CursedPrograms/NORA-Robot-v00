@@ -172,6 +172,7 @@ float humidity = -1;
 #define MILA_LINK_ADDRESS 0x0DA2
 #define WHIP_LINK_ADDRESS 0x0DA3
 #define KIDA_LINK_ADDRESS 0x0DA4
+#define NIKA_LINK_ADDRESS 0x0DA5   // NIKA.ino: like MILA's, plus she listens for this beacon (her social drive)
 
 // ---- Robots talking (liveliness; the real data goes over WiFi / the link) ----
 // Every so often, when she isn't driving anyone, NORA says a phrase: she
@@ -291,7 +292,7 @@ String btPwBuffer = "";
 // NORA listens to the WiFi around her and flags anything that is not one of
 // our own networks as an "imposter". Passive only: she scans and reports,
 // never connecting to or touching a network that is not hers.
-const char* const FLEET_SSIDS[] = { "NORA", "MILA", "WHIP" };
+const char* const FLEET_SSIDS[] = { "NORA", "MILA", "WHIP", "NIKA" };
 // On-demand only: a WiFi scan channel-hops, which would disturb NORA's AP and
 // her ESP-NOW proximity beacons, so she scans only when /radar is opened, and
 // no more often than this.
@@ -908,12 +909,12 @@ void handleBluetooth() {
     if (c == '\n' || c == '\r' || c == ' ') continue;
 
     if (btLinkAddress) {
-      // 'T' + robot (I IDA, M MILA, W WHIP, K KIDA) + the same letters as 'I'
+      // 'T' + robot (I IDA, M MILA, W WHIP, K KIDA, N NIKA) + the same letters as 'I'
       String one(c);
       one.toUpperCase();
       if (btLinkAddress == 1) {
         btLinkAddress = linkAddress(one);
-        if (!btLinkAddress) SerialBT.println("link: robot? (I M W K)");
+        if (!btLinkAddress) SerialBT.println("link: robot? (I M W K N)");
       } else {
         SerialBT.println(linkCommand(btLinkAddress, one) ? "link: ok" : "link: ?");
         btLinkAddress = 0;
@@ -1101,11 +1102,12 @@ uint16_t linkAddress(String r) {
   if (r == "mila" || r == "m") return MILA_LINK_ADDRESS;
   if (r == "whip" || r == "w") return WHIP_LINK_ADDRESS;
   if (r == "kida" || r == "k") return KIDA_LINK_ADDRESS;
+  if (r == "nika" || r == "n") return NIKA_LINK_ADDRESS;
   return 0;
 }
 
 bool isLinkAddress(uint16_t a) {
-  return a >= IDA_LINK_ADDRESS && a <= KIDA_LINK_ADDRESS;
+  return a >= IDA_LINK_ADDRESS && a <= NIKA_LINK_ADDRESS;
 }
 
 void sendAvatar(const uint8_t* jpg, size_t len) {
@@ -1145,6 +1147,7 @@ const char* linkName(uint16_t address) {
     case MILA_LINK_ADDRESS: return "MILA";
     case WHIP_LINK_ADDRESS: return "WHIP";
     case KIDA_LINK_ADDRESS: return "KIDA";
+    case NIKA_LINK_ADDRESS: return "NIKA";
   }
   return "?";
 }
@@ -1204,9 +1207,9 @@ void talkTick(unsigned long now) {
     return;
   }
   if (now >= nextBeaconMs) {
-    static const uint16_t ROBOTS[] = { IDA_LINK_ADDRESS, MILA_LINK_ADDRESS, WHIP_LINK_ADDRESS, KIDA_LINK_ADDRESS };
+    static const uint16_t ROBOTS[] = { IDA_LINK_ADDRESS, MILA_LINK_ADDRESS, WHIP_LINK_ADDRESS, KIDA_LINK_ADDRESS, NIKA_LINK_ADDRESS };
     linkSend(ROBOTS[beaconIndex], TALK_BEACON);
-    beaconIndex = (beaconIndex + 1) % 4;
+    beaconIndex = (beaconIndex + 1) % 5;
     nextBeaconMs = now + BEACON_EVERY_MS;
   }
 }
@@ -2060,6 +2063,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       <button data-robot="mila">MILA</button>
       <button data-robot="whip">WHIP</button>
       <button data-robot="kida">KIDA</button>
+      <button data-robot="nika">NIKA</button>
     </div>
     <div id="idaModes">
       <button class="mode-btn" onclick="ida('manual')">MANUAL</button>
@@ -2238,7 +2242,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
   // ---- IDA link: same hold-to-drive rhythm as NORA's pad (resend every
   // 150 ms while held; IDA stops on her own ~0.5 s after the last one) ----
   let idaActive = null, idaTimer = null, linkRobot = 'ida';
-  const LINK_COLOURS = { ida: '#D6935A', mila: '#1FD4DE', whip: '#D34859', kida: '#DF5BA3' };
+  const LINK_COLOURS = { ida: '#D6935A', mila: '#1FD4DE', whip: '#D34859', kida: '#DF5BA3', nika: '#963CFF' };
   function ida(c) {
     fetch('/link?r=' + linkRobot + '&c=' + c).catch(() => {});
     document.getElementById('idaStatus').textContent = c;
@@ -2248,6 +2252,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     idaStop();
     linkRobot = r;
     const av = document.getElementById('linkAvatar');
+    av.onerror = function () { av.style.visibility = 'hidden'; };   // a robot without an avatar here yet
+    av.onload = function () { av.style.visibility = ''; };
     av.src = '/avatar/' + r + '.jpg';
     av.alt = r.toUpperCase();
     document.getElementById('linkName').textContent = r.toUpperCase();

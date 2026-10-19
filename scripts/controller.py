@@ -260,7 +260,7 @@ class BtLink:
     def ida(self, c):          # IDA link over BT: 'I' + one letter
         self._send("I" + self.IDA[c])
 
-    ROBOT = {"ida": "I", "mila": "M", "whip": "W", "kida": "K"}
+    ROBOT = {"ida": "I", "mila": "M", "whip": "W", "kida": "K", "nika": "N"}
 
     def link(self, robot, c):  # fleet link over BT: 'T' + robot letter + command letter
         self._send("T" + self.ROBOT[robot] + self.IDA[c])
@@ -291,7 +291,8 @@ IDA_COL = (232, 160, 90)   # IDA's avatar amber, so her panel reads as hers
 # Robots NORA can drive over the IR link, in selector order, each in its own
 # accent colour (from its colour_scheme.xml) so the panel reads as theirs
 LINK_ROBOTS = [("ida", "IDA", IDA_COL), ("mila", "MILA", (31, 212, 222)),
-               ("whip", "WHIP", (211, 72, 89)), ("kida", "KIDA", (223, 91, 163))]
+               ("whip", "WHIP", (211, 72, 89)), ("kida", "KIDA", (223, 91, 163)),
+               ("nika", "NIKA", (150, 60, 255))]
 
 IMAGES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "images")
 
