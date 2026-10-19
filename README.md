@@ -84,7 +84,7 @@ NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest 
 <summary><b>Prerequisites</b></summary>
 
 ### Software
-- [Arduino IDE](https://docs.arduino.cc/software/ide/) with the ESP32 board package
+- `flash.bat` does it all for the ESP32: on a fresh PC it installs the Arduino command line tool, the ESP32 board package (3.3.12) and the libraries by itself, then finds the port, compiles and flashes, talking you through it (unplug the serial link to the UNO first). Or the [Arduino IDE](https://docs.arduino.cc/software/ide/) with the ESP32 board package
 - ESP32 libraries: `IRremote` 4.x, `Adafruit AHTX0` (`WiFi`, `WebServer`, `Preferences`, `BluetoothSerial` and `Wire` come with the core)
 - UNO libraries: [`SFEMP3Shield` and `SdFat`](https://github.com/madsci1016/Sparkfun-MP3-Player-Shield-Arduino-Library)
 - For the ESP32, pick a bigger app partition under **Tools → Partition Scheme**: *Huge APP (3MB No OTA/1MB SPIFFS)* or *Minimal SPIFFS (1.9MB APP with OTA)*
