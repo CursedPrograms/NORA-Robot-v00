@@ -829,6 +829,9 @@ void setup() {
   server.on("/avatar/kida.jpg", []() {
     sendAvatar(AVATAR_KIDA, sizeof(AVATAR_KIDA));
   });
+  server.on("/avatar/nika.jpg", []() {
+    sendAvatar(AVATAR_NIKA, sizeof(AVATAR_NIKA));
+  });
 
   // which robots are nearby (ESP-NOW signal strength), nearest first
   server.on("/radar", []() {
