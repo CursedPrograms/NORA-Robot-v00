@@ -111,6 +111,21 @@
         <h4>UV light</h4>
         <p>A UV LED that can be off, on or blinking.</p>
       </div>
+      <div class="card">
+        <span class="k">Think</span>
+        <h4>MIND mode</h4>
+        <p>The LLM on her PC controller drives her: she looks, thinks out loud, says what she&rsquo;s doing as the fleet&rsquo;s boss, moves and remembers. <b>N</b> on the controller.</p>
+      </div>
+      <div class="card">
+        <span class="k">Lead</span>
+        <h4>IDA&rsquo;s mind too</h4>
+        <p><b>H</b> runs IDA&rsquo;s mind over the IR link. IDA can&rsquo;t report back, so her mind knows she&rsquo;s blind and takes one short step at a time.</p>
+      </div>
+      <div class="card">
+        <span class="k">Feel</span>
+        <h4>Remote and rumble</h4>
+        <p>The remote&rsquo;s <b>5</b> locks and frees her wheels; a gamepad buzzes harder as she nears a wall in the way it drives her.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -260,6 +275,7 @@ BZ:SPD:&lt;0-100&gt;  BZ:MODE:&lt;0-3&gt;  BZ:UV:&lt;0-2&gt;  BZ:LOCK:&lt;0|1&gt
           <tr><td><a href="https://cursedprograms.github.io/MILA/">MILA</a></td><td><code>0x0DA2</code></td><td><code>MILA.ino</code></td></tr>
           <tr><td><a href="https://cursedprograms.github.io/WHIP-Robot-v00/">WHIP</a></td><td><code>0x0DA3</code></td><td><code>esp32.ino</code></td></tr>
           <tr><td><a href="https://cursedprograms.github.io/KIDA-Robot-v01/">KIDA-01</a></td><td><code>0x0DA4</code></td><td><code>arduino01</code> sketch</td></tr>
+          <tr><td><a href="https://cursedprograms.github.io/NIKA-Robot-v00/">NIKA</a></td><td><code>0x0DA5</code></td><td><code>NIKA.ino</code></td></tr>
         </tbody>
       </table>
     </div>
@@ -320,8 +336,8 @@ BZ:SPD:&lt;0-100&gt;  BZ:MODE:&lt;0-3&gt;  BZ:UV:&lt;0-2&gt;  BZ:LOCK:&lt;0|1&gt
   <div class="wrap">
     <h2>Voice</h2>
     <h3 class="title">What NORA says</h3>
-    <p class="muted">Her spoken lines, played from the MP3 shield's SD card (<code>track200</code>&ndash;<code>track210</code>). Made with <code>make_voice.bat</code> (Windows text-to-speech + ffmpeg).</p>
-    <div class="player" data-tracks='[{"title": "Manual mode", "src": "site/voice/track200.mp3"}, {"title": "Auto mode", "src": "site/voice/track201.mp3"}, {"title": "Line follow mode", "src": "site/voice/track202.mp3"}, {"title": "Remote mode", "src": "site/voice/track203.mp3"}, {"title": "Motors locked", "src": "site/voice/track204.mp3"}, {"title": "Motors unlocked", "src": "site/voice/track205.mp3"}, {"title": "Something&#39;s in the way", "src": "site/voice/track206.mp3"}, {"title": "UV off", "src": "site/voice/track207.mp3"}, {"title": "UV on", "src": "site/voice/track208.mp3"}, {"title": "UV blinking", "src": "site/voice/track209.mp3"}, {"title": "Hello, I&#39;m NORA", "src": "site/voice/track210.mp3"}]'></div>
+    <p class="muted">Her spoken lines, played from the MP3 shield's SD card: her modes, lock and UV (<code>track200</code>&ndash;<code>track210</code>), and her mind's phrase book (<code>track211</code>&ndash;<code>track231</code>), said from her own speaker when MIND mode drives her. Made with <code>make_voice.bat</code> (Windows text-to-speech + ffmpeg).</p>
+    <div class="player" data-tracks='[{"title": "Manual mode", "src": "site/voice/track200.mp3"}, {"title": "Auto mode", "src": "site/voice/track201.mp3"}, {"title": "Line follow mode", "src": "site/voice/track202.mp3"}, {"title": "Remote mode", "src": "site/voice/track203.mp3"}, {"title": "Motors locked", "src": "site/voice/track204.mp3"}, {"title": "Motors unlocked", "src": "site/voice/track205.mp3"}, {"title": "Something&#39;s in the way", "src": "site/voice/track206.mp3"}, {"title": "UV off", "src": "site/voice/track207.mp3"}, {"title": "UV on", "src": "site/voice/track208.mp3"}, {"title": "UV blinking", "src": "site/voice/track209.mp3"}, {"title": "Hello, I&#39;m NORA", "src": "site/voice/track210.mp3"}, {"title": "Mind mode", "src": "site/voice/track211.mp3"}, {"title": "Let me think about this", "src": "site/voice/track212.mp3"}, {"title": "All clear. Moving out", "src": "site/voice/track213.mp3"}, {"title": "Wall ahead. Changing course", "src": "site/voice/track214.mp3"}, {"title": "Sliding over", "src": "site/voice/track215.mp3"}, {"title": "Turning around", "src": "site/voice/track216.mp3"}, {"title": "Hmm. Tight spot", "src": "site/voice/track217.mp3"}, {"title": "Nice and open in here", "src": "site/voice/track218.mp3"}, {"title": "Fleet, report", "src": "site/voice/track219.mp3"}, {"title": "I&#39;ve got this", "src": "site/voice/track220.mp3"}, {"title": "Easy does it", "src": "site/voice/track221.mp3"}, {"title": "Something&#39;s close behind me", "src": "site/voice/track222.mp3"}, {"title": "My wheels are locked", "src": "site/voice/track223.mp3"}, {"title": "Back to the bridge", "src": "site/voice/track224.mp3"}, {"title": "Who turned the lights off?", "src": "site/voice/track225.mp3"}, {"title": "Music time", "src": "site/voice/track226.mp3"}, {"title": "Exploring", "src": "site/voice/track227.mp3"}, {"title": "That was close", "src": "site/voice/track228.mp3"}, {"title": "Good. Very good", "src": "site/voice/track229.mp3"}, {"title": "Stopping here", "src": "site/voice/track230.mp3"}, {"title": "Where is everyone?", "src": "site/voice/track231.mp3"}]'></div>
   </div>
 </section>
 

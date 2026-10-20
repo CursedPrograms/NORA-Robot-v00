@@ -68,12 +68,15 @@ NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest 
 - [x] **Self-hosted AP:** no router needed; she is the fleet's network and registry (port `5000`).
 - [x] **Reactive safety:** four HC-SR04 sensors (front, back, left, right) block drive commands that would hit something, with a buzzer warning.
 - [x] **Four drive modes:** Manual (web / Bluetooth), Auto (obstacle avoidance), Line following, IR Remote.
-- [x] **Fleet IR remote:** drives IDA, MILA, WHIP and KIDA-01 through her IR transmitter, from the web page, the Python controller or Bluetooth. The panel shows the selected robot's avatar.
+- [x] **Fleet IR remote:** drives IDA, MILA, WHIP, KIDA-01 and NIKA through her IR transmitter, from the web page, the Python controller or Bluetooth. The panel shows the selected robot's avatar.
+- [x] **MIND mode:** the LLM on her PC controller drives her, one short move at a time: she looks (her four distances, light, sound), thinks out loud on screen, says what she's doing in her own voice and personality (the fleet's boss), moves, and remembers. **N** on the Python controller, or MIND on her web page (shown only while that controller is connected). Only on an x86 PC with 8 GB+ RAM and a GTX 1050 or better. Her wheel lock and her wall stop hold in MIND too.
+- [x] **IDA's mind:** **H** on her Python controller runs IDA's mind over the IR link. IDA can't report anything back, so her mind knows she's blind and moves one short step at a time.
+- [x] **Gamepad rumble:** the pad buzzes as she nears a wall in the direction it drives her (from 40 cm, full at 15 cm).
 - [x] **UV light:** off, on or blinking.
 - [x] **Music:** an MP3 player with play, next, previous, stop, repeat and volume. A single clap starts the music.
 - [x] **Voice:** she says her mode, motor lock, UV and "Something's in the way" out loud from MP3s on the SD card (falls back to beeps; never talks over music). Make them with `make_voice.bat`.
 - [x] **Environment:** temperature and humidity (AHT10), and ambient light.
-- [x] **Motor lock:** the web page needs a password (`1234` by default) to unlock the motors.
+- [x] **Motor lock:** the web page needs a password (`1234` by default) to unlock the motors; on the IR remote, **5** locks and unlocks them (one button: the lock is a safety catch, not security).
 
 </details>
 
@@ -320,7 +323,7 @@ python scripts/controller.py --bt COM7       # Bluetooth serial instead
 ```
 
 ### Fleet IR link
-NORA drives [IDA](https://github.com/CursedPrograms/IDA-Robot-v00), MILA, WHIP and KIDA-01 through her IR transmitter (GPIO 33). The frames are Samsung-format IR, one address per robot, with the same commands `0x48`–`0x4F` for all of them. No remote in the fleet uses that protocol, so nothing else reacts, and NORA ignores her own frames on her receiver. Drive commands repeat every 150 ms while held, with `stop` on release; each robot stops by itself if the link goes quiet.
+NORA drives [IDA](https://github.com/CursedPrograms/IDA-Robot-v00), MILA, WHIP, KIDA-01 and NIKA through her IR transmitter (GPIO 33). The frames are Samsung-format IR, one address per robot, with the same commands `0x48`–`0x4F` for all of them. No remote in the fleet uses that protocol, so nothing else reacts, and NORA ignores her own frames on her receiver. Drive commands repeat every 150 ms while held, with `stop` on release; each robot stops by itself if the link goes quiet.
 
 | Robot | Address | Receiver |
 | :--- | :--- | :--- |
@@ -328,6 +331,7 @@ NORA drives [IDA](https://github.com/CursedPrograms/IDA-Robot-v00), MILA, WHIP a
 | [MILA](https://github.com/CursedPrograms/MILA) | `0x0DA2` | `MILA.ino` |
 | [WHIP](https://github.com/CursedPrograms/WHIP-Robot-v00) | `0x0DA3` | `esp32.ino` |
 | [KIDA-01](https://github.com/CursedPrograms/KIDA-Robot-v01) | `0x0DA4` | `arduino01` sketch (prints the IR lines the Pi already reads) |
+| [NIKA](https://github.com/CursedPrograms/NIKA-Robot-v00) | `0x0DA5` | `NIKA.ino` (her beacon from NORA is her synth brain's social drive) |
 
 Pick the robot with the tabs on the web page's panel, or `<` `>` / `Tab` in the Python controller. The panel's avatar, name and colour follow the selection.
 
@@ -335,13 +339,13 @@ Pick the robot with the tabs on the web page's panel, or `<` `>` / `Tab` in the 
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Web page** (fleet panel) | `I` `K` `J` `L` or the buttons | buttons | button | button | button |
 | **Python controller** (right column) | `I` `K` `J` `L` or the buttons | release | `O` | `P` | `Y` |
-| **HTTP** | `/link?r=ida\|mila\|whip\|kida&c=fw` `bw` `left` `right` | `stop` | `auto` | `manual` | `speed` |
-| **Bluetooth** | `T` + robot (`I` `M` `W` `K`) + `F` `B` `L` `R` | `…S` | `…O` | `…W` | `…X` |
+| **HTTP** | `/link?r=ida\|mila\|whip\|kida\|nika&c=fw` `bw` `left` `right` | `stop` | `auto` | `manual` | `speed` |
+| **Bluetooth** | `T` + robot (`I` `M` `W` `K` `N`) + `F` `B` `L` `R` | `…S` | `…O` | `…W` | `…X` |
 
 `/ida?c=...` and Bluetooth `I` + letter still drive IDA directly. WHIP has a single gait speed, so `speed` does nothing there.
 
 ### Voice
-`make_voice.bat` turns her lines into MP3s with Windows text-to-speech (Zira) and ffmpeg: `voice	rack200.mp3`–`track210.mp3`. Copy them to the root of the SD card next to `track000.mp3` (`make_voice.bat E:` copies them for you). The lines are listed at the top of `scripts/make_voice.ps1`:
+`make_voice.bat` turns her lines into MP3s with Windows text-to-speech (Zira) and ffmpeg: `voice\track200.mp3`–`track231.mp3`. Copy them to the root of the SD card next to `track000.mp3` (`make_voice.bat E:` copies them for you). The lines are listed at the top of `scripts/make_voice.ps1`:
 
 | Track | Line | When |
 | :--- | :--- | :--- |
