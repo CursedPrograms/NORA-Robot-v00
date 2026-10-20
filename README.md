@@ -253,6 +253,8 @@ Every key, remote button and Bluetooth letter. The same list opens in its own wi
 | U | UV light: off, on, blink |
 | X | speed preset: 25, 50, 75, 100 % |
 | + / - | speed up / down 10 % (controller) |
+| N | her MIND mode on / off: the LLM on this PC drives her (x86 PC, GTX 1050+; controller) |
+| H | IDA's mind on / off: drives IDA over the IR link, blind and careful (controller) |
 | I / J / K / L | drive the picked fleet robot through NORA's IR link (hold) |
 | Tab / Shift+Tab | pick the next / previous fleet robot (controller) |
 | O / P / Y | picked robot: auto / manual / speed (controller) |

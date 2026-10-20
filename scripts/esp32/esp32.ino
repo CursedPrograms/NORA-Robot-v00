@@ -244,8 +244,27 @@ unsigned long irLastDriveMs = 0;
 enum DriveMode { MODE_MANUAL,
                  MODE_AUTO,
                  MODE_LINE,
-                 MODE_IR };
+                 MODE_IR,
+                 MODE_MIND };   // her PC controller's LLM drives her (MIND MODE below)
 DriveMode driveMode = MODE_MANUAL;
+
+// =====================
+// MIND MODE (fleet TODO, section 10)
+// =====================
+// Her PC controller's LLM (mind.py) drives her one short move at a time. The mind host - a controller
+// that can run it (mind.can_think()) - unlocks with /unlock?pw=<MOTOR_PASSWORD>&ctl=1 and checks in on
+// /sensors?ctl=1; MIND mode only starts while it does, and ends (stop, back to MANUAL) 5 s after it goes
+// quiet. /mind?act=fw|bw|left|right|turnL|turnR|stop&steps=1-4: MIND_STEP_MS per step, then stop. Her
+// wheel lock and her manual wall stop (MANUAL_STOP_CM, any direction) hold in MIND too.
+IPAddress mindHostIP(0, 0, 0, 0);
+unsigned long mindHostSeen = 0;
+const unsigned long MIND_HOST_TTL_MS = 5000;
+const unsigned long MIND_STEP_MS = 400;
+const int MIND_MAX_STEPS = 4;
+unsigned long mindMoveUntil = 0;   // the current move ends here (0 = none)
+int mindDir = -1;                  // the DIR_* it's heading, to stop at a wall on the way; -1 = turning
+bool mindBlocked = false;          // the last move stopped at a wall
+bool mindHostAlive() { return mindHostSeen && millis() - mindHostSeen < MIND_HOST_TTL_MS; }
 #define MANUAL_STOP_CM 15.0  // closer than this blocks Manual/Remote driving and pauses Line mode
 
 // =====================
@@ -453,6 +472,10 @@ unsigned long lastUVBlink = 0;
 // changes one of those calls the matching notify*() right after, and it
 // travels over the same serial link as the M:*/V:* commands.
 void notifyMode() {
+  if (driveMode == MODE_MIND) {   // the UNO's mode lines are 0-3; "Mind mode." is phrase-book line 11
+    Serial.println("SAY:11");
+    return;
+  }
   Serial.print("BZ:MODE:");
   Serial.println((int)driveMode);
 }
@@ -586,6 +609,49 @@ void setup() {
     setDriveMode(MODE_IR, "web");
     server.send(200, "text/plain", "OK");
   });
+  server.on("/modeMind", []() {    // the MIND button (her page, her controller): only while her mind's controller is here
+    if (!mindHostAlive()) { server.send(409, "text/plain", "no mind controller running"); return; }
+    setDriveMode(MODE_MIND, "mind");
+    server.send(200, "text/plain", "OK");
+  });
+  server.on("/mode", []() {        // the fleet's /mode?m=mind (and her other modes by name)
+    String m = server.arg("m");
+    if (m == "mind") {
+      if (!mindHostAlive()) { server.send(409, "text/plain", "no mind controller running"); return; }
+      setDriveMode(MODE_MIND, "mind");
+    } else if (m == "manual") setDriveMode(MODE_MANUAL, "web");
+    else if (m == "auto") setDriveMode(MODE_AUTO, "web");
+    else if (m == "line") setDriveMode(MODE_LINE, "web");
+    else if (m == "ir") setDriveMode(MODE_IR, "web");
+    else { server.send(400, "text/plain", "manual|auto|line|ir|mind"); return; }
+    server.send(200, "text/plain", "OK");
+  });
+  server.on("/unlock", []() {      // her mind's controller says it's here (her PIN = her motor password)
+    if (server.arg("pw") != MOTOR_PASSWORD) { server.send(403, "application/json", "{\"ok\":false}"); return; }
+    if (server.arg("ctl") == "1") { mindHostIP = server.client().remoteIP(); mindHostSeen = millis(); }
+    server.send(200, "application/json", "{\"ok\":true}");
+  });
+  server.on("/mind", []() {
+    if (!mindHostAlive() || server.client().remoteIP() != mindHostIP) { server.send(403, "text/plain", "LOCKED"); return; }
+    if (driveMode != MODE_MIND) { server.send(409, "application/json", "{\"ok\":false,\"error\":\"not in mind mode\"}"); return; }
+    String act = server.arg("act");
+    int steps = server.hasArg("steps") ? constrain(server.arg("steps").toInt(), 1, MIND_MAX_STEPS) : 1;
+    if (act == "stop") { stopMotors(); mindMoveUntil = 0; server.send(200, "application/json", "{\"ok\":true}"); return; }
+    if (motorLocked) { server.send(200, "application/json", "{\"ok\":false,\"locked\":true}"); return; }
+    int dir = act == "fw" ? DIR_FRONT : act == "bw" ? DIR_BACK : act == "left" ? DIR_LEFT : act == "right" ? DIR_RIGHT : -1;
+    if (dir < 0 && act != "turnL" && act != "turnR") { server.send(400, "application/json", "{\"ok\":false,\"error\":\"bad act\"}"); return; }
+    mindBlocked = dir >= 0 && blockedInDir(dir);
+    if (mindBlocked) { server.send(200, "application/json", "{\"ok\":false,\"blocked\":true}"); return; }
+    if (act == "fw") moveForward();
+    else if (act == "bw") moveBackward();
+    else if (act == "left") strafeLeft();
+    else if (act == "right") strafeRight();
+    else if (act == "turnL") turnLeft();
+    else turnRight();
+    mindDir = dir;
+    mindMoveUntil = millis() + steps * MIND_STEP_MS;
+    server.send(200, "application/json", "{\"ok\":true}");
+  });
 
   // UV
   server.on("/uvOff", []() {
@@ -704,7 +770,10 @@ void setup() {
   });
 
   server.on("/sensors", []() {
-    String json = "{\"F\":" + String(front_cm, 1) + ",\"L\":" + String(left_cm, 1) + ",\"B\":" + String(back_cm, 1) + ",\"R\":" + String(right_cm, 1) + ",\"lfl\":" + String(lf_l) + ",\"lfm\":" + String(lf_m) + ",\"lfr\":" + String(lf_r) + ",\"mode\":" + String((int)driveMode) + ",\"dir\":" + String(autoDir) + ",\"uv\":" + String(uvMode) + ",\"mt\":" + String(musicTrack) + ",\"ms\":" + String(musicState) + ",\"lt\":" + String(lightPct) + ",\"snd\":" + String(soundRecent ? 1 : 0) + ",\"lock\":" + String(motorLocked ? 1 : 0) + ",\"spd\":" + String(speedPct) + ",\"temp\":" + String(tempC, 1) + ",\"hum\":" + String(humidity, 1) + ",\"msrc\":\"" + modeSource + "\"" +
+    if (server.arg("ctl") == "1" && mindHostSeen && server.client().remoteIP() == mindHostIP) mindHostSeen = millis();
+    String json = "{\"mindHost\":" + String(mindHostAlive() ? 1 : 0) +
+                  ",\"mindSteps\":" + String(mindMoveUntil ? (int)((mindMoveUntil - millis() + MIND_STEP_MS - 1) / MIND_STEP_MS) : 0) +
+                  ",\"blocked\":" + String(mindBlocked ? 1 : 0) + ",\"F\":" + String(front_cm, 1) + ",\"L\":" + String(left_cm, 1) + ",\"B\":" + String(back_cm, 1) + ",\"R\":" + String(right_cm, 1) + ",\"lfl\":" + String(lf_l) + ",\"lfm\":" + String(lf_m) + ",\"lfr\":" + String(lf_r) + ",\"mode\":" + String((int)driveMode) + ",\"dir\":" + String(autoDir) + ",\"uv\":" + String(uvMode) + ",\"mt\":" + String(musicTrack) + ",\"ms\":" + String(musicState) + ",\"lt\":" + String(lightPct) + ",\"snd\":" + String(soundRecent ? 1 : 0) + ",\"lock\":" + String(motorLocked ? 1 : 0) + ",\"spd\":" + String(speedPct) + ",\"temp\":" + String(tempC, 1) + ",\"hum\":" + String(humidity, 1) + ",\"msrc\":\"" + modeSource + "\"" +
                   ",\"sd\":" + String(sdOk) + ",\"nt\":" + String(sdTracks) +
                   ",\"irn\":" + String(irFrames) + ",\"irp\":\"" + irLastProto + "\",\"ira\":" + String(irLastAddr) +
                   ",\"irc\":" + String(irLastCmd) + "}";
@@ -782,7 +851,7 @@ void setup() {
 // =====================
 void loop() {
   // what she tells the other robots: driving herself, driven by you, or parked
-  bool selfDriving = driveMode == MODE_AUTO || driveMode == MODE_LINE;
+  bool selfDriving = driveMode == MODE_AUTO || driveMode == MODE_LINE || driveMode == MODE_MIND;
   fleetNearSetState((motorLocked || (!motorsMoving && !selfDriving)) ? FLEET_PARKED
                     : selfDriving ? FLEET_DRIVING : FLEET_USER);
 
@@ -858,6 +927,16 @@ void loop() {
 
   if (driveMode == MODE_AUTO) AutonomousMode(front_cm, left_cm, back_cm, right_cm);
   else if (driveMode == MODE_LINE) LineFollowerMode(lf_l, lf_m, lf_r);
+  else if (driveMode == MODE_MIND) {
+    if (!mindHostAlive()) {
+      mindMoveUntil = 0;
+      setDriveMode(MODE_MANUAL, "mind gone");   // stops her
+    } else if (mindMoveUntil && ((long)(now - mindMoveUntil) >= 0 || (mindDir >= 0 && blockedInDir(mindDir)) || motorLocked)) {
+      if (mindDir >= 0 && blockedInDir(mindDir)) mindBlocked = true;
+      mindMoveUntil = 0;
+      stopMotors();
+    }
+  }
 }
 
 // =====================
@@ -2025,6 +2104,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     <button class="mode-btn active" id="btnManual" onclick="setMode('Manual')">MANUAL</button>
     <button class="mode-btn"        id="btnAuto"   onclick="setMode('Auto')">AUTO</button>
     <button class="mode-btn"        id="btnLine"   onclick="setMode('Line')">LINE</button>
+    <button class="mode-btn"        id="btnMind"   onclick="setMode('Mind')" style="display:none" title="the LLM on her PC controller drives her">MIND</button>
   </div>
 
   <button id="uvBtn" onclick="cycleUV()">UV OFF</button>
@@ -2113,14 +2193,14 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
   function cmd(c) { fetch(c).catch(() => {}); }
 
-  const modeNames = ['Manual', 'Auto', 'Line', 'IR'];
+  const modeNames = ['Manual', 'Auto', 'Line', 'IR', 'Mind'];
 
   // Applies a mode to the UI only -- used both when we initiate a change
   // (setMode) and when we're just reflecting one that happened elsewhere
   // (IR remote, pygame controller) via the /sensors poll.
   function applyModeUI(mode) {
     currentMode = mode;
-    ['Manual','Auto','Line'].forEach(m => {
+    ['Manual','Auto','Line','Mind'].forEach(m => {
       const btn = document.getElementById('btn' + m);
       if (btn) btn.classList.toggle('active', m === mode);
     });
@@ -2384,6 +2464,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       // the pygame controller -- so this page never shows a stale mode/UV/
       // speed after someone else drove the change. Only *apply* the UI here,
       // never re-send the command (that would just echo it back out).
+      document.getElementById('btnMind').style.display = d.mindHost ? '' : 'none';   // only while her controller can think
       const srvMode = modeNames[d.mode];
       if (srvMode && srvMode !== currentMode) applyModeUI(srvMode);
 
@@ -2435,7 +2516,7 @@ void handleRoot() {
 // (MANUAL_STOP_CM, 15 cm, is defined up with DRIVE MODE -- Line mode uses it too.)
 
 bool blockedInDir(int dir) {
-  if (driveMode != MODE_MANUAL && driveMode != MODE_IR) return false;
+  if (driveMode != MODE_MANUAL && driveMode != MODE_IR && driveMode != MODE_MIND) return false;
   float d;
   switch (dir) {
     case DIR_FRONT: d = front_cm; break;

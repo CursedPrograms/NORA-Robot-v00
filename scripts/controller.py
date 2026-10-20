@@ -50,6 +50,8 @@ import pygame
 
 import keymap   # scripts/keymap.py: the keymap window (F1)
 from gamepad_drive import PadDrive, rumble_level   # any gamepad, or ARM's flight stick
+import mind          # scripts/mind.py: the LLM minds (N: hers, H: IDA's), the same file in every controller
+import mind_panel    # scripts/mind_panel.py: a mind's strip in the window
 
 # ----------------------------------------------------------------------------
 # Transports
@@ -66,6 +68,7 @@ class WifiLink:
         self.ok = False
         self.data = {}
         self.fleet = {"authority": "NORA", "robots": []}
+        self.mind_host = False   # mind.can_think() said yes: check in on /sensors?ctl=1 (MIND mode needs it)
         self._lock = threading.Lock()
         # commands fire every ~150ms while a key/button is held; a small
         # pool avoids spawning a fresh OS thread for every single one
@@ -92,7 +95,7 @@ class WifiLink:
     def _poll(self):
         while True:
             try:
-                r = self.requests.get(self.base + "/sensors", timeout=1.0)
+                r = self.requests.get(self.base + "/sensors" + ("?ctl=1" if self.mind_host else ""), timeout=1.0)
                 with self._lock:
                     self.data = r.json()
                 self.ok = True
@@ -119,6 +122,17 @@ class WifiLink:
     def fleet_snapshot(self):
         with self._lock:
             return dict(self.fleet)
+
+    def become_mind_host(self):
+        """Her mind's controller: unlock with her motor password and ctl=1, then check in."""
+        try:
+            self.requests.get(self.base + "/unlock", params={"pw": MOTOR_PASSWORD, "ctl": "1"}, timeout=2)
+            self.mind_host = True
+        except Exception:
+            pass
+
+    def serial(self, cmd):   # a line straight to her UNO (SAY:<n> plays a phrase-book line)
+        self._pool.submit(self._get, "/serial?cmd=" + cmd)
 
     # driving -----------------------------------------------------------
     def drive(self, action):   # 'fw' 'bw' 'left' 'right' 'turnL' 'turnR'
@@ -493,6 +507,97 @@ def connection_picker(screen, clock, f_big, f_med, f_sml, host, port, btport):
         clock.tick(60)
 
 
+# ---------------------------------------------------------------------------
+# The minds (mind.py): NORA's (N) and IDA's (H). NORA's runs her MIND mode (/mind on her ESP32);
+# IDA has no WiFi, so her mind drives her over NORA's IR link and senses nothing: she's blind, and
+# so very hesitant, one short step at a time.
+# ---------------------------------------------------------------------------
+MOTOR_PASSWORD = "1234"   # NORA's (secrets.h MOTOR_PASSWORD): a safety catch, not security
+NORA_PERSONA = (
+    "You're NORA, a four-wheeled mecanum robot, and the boss of the DREAM Robotics fleet: you host its "
+    "network when RIFT is away, you drive IDA, MILA, WHIP, the KIDAs and NIKA over your IR link, and "
+    "everyone registers with you. Warm, confident, a bit bossy, very organised; you narrate like a "
+    "captain on her bridge. You love music (you have a speaker and an SD card full of songs) and your "
+    "UV light. You can slide sideways as well as turn."
+)
+NORA_MOVES = {"fw": "drive forward", "bw": "drive backward", "left": "slide left (mecanum)",
+              "right": "slide right (mecanum)", "turnL": "turn left on the spot", "turnR": "turn right on the spot"}
+NORA_SAFETY = "she won't drive into anything closer than 15 cm on any side, and stops when her wheels are locked"
+NORA_VOICE = ("Microsoft Zira Desktop", 0, "medium")   # the voice her SD card's lines are made with
+# Her phrase book (make_voice.ps1 lines 11-31, on her SD card): she says these from her own speaker.
+# Until the lines are on the card, leave PHRASEBOOK_ON_CARD False: she speaks through this PC instead.
+PHRASEBOOK_ON_CARD = False
+NORA_PHRASES = {
+    11: "Mind mode.", 12: "Let me think about this.", 13: "All clear. Moving out.", 14: "Wall ahead. Changing course.",
+    15: "Sliding over.", 16: "Turning around.", 17: "Hmm. Tight spot.", 18: "Nice and open in here.",
+    19: "Fleet, report.", 20: "I've got this.", 21: "Easy does it.", 22: "Something's close behind me.",
+    23: "My wheels are locked.", 24: "Back to the bridge.", 25: "Who turned the lights off?",
+    26: "Music time.", 27: "Exploring.", 28: "That was close.", 29: "Good. Very good.", 30: "Stopping here.",
+    31: "Where is everyone?",
+}
+IDA_PERSONA = (
+    "You're IDA, a small tracked robot and NORA's loyal little sidekick. You have no WiFi: you only hear "
+    "NORA's IR blinks, and you can't tell anyone what you see. So you're timid and careful, a bit "
+    "anxious, devoted to NORA, and you talk in short nervous sentences."
+)
+IDA_MOVES = {"fw": "creep forward", "bw": "creep backward", "left": "turn left", "right": "turn right"}
+IDA_SAFETY = "she stops by herself before a wall when driving forward (her own sensor), and NORA can lock her wheels"
+IDA_VOICE = ("Microsoft Zira Desktop", 1, "high")
+MIND_STEP_S = 0.4          # one step of a move (MIND_STEP_MS on her ESP32)
+MIND_MOVE_TIMEOUT_S = 6.0
+
+
+def nora_body(link):
+    def look():
+        s = link.get_json("/sensors?ctl=1") or {}
+        return {
+            "distances_cm": {k: s.get(c) for k, c in (("front", "F"), ("left", "L"), ("back", "B"), ("right", "R"))},
+            "wheels_locked": bool(s.get("lock")), "stopped_at_a_wall_last_move": bool(s.get("blocked")),
+            "temperature_c": s.get("temp"), "light_pct": s.get("lt"), "heard_a_sound": bool(s.get("snd")),
+            "music": ["stopped", "playing", "paused"][s.get("ms")] if s.get("ms") in (0, 1, 2) else None,
+        }
+
+    def act(move, steps):
+        r = link.get_json(f"/mind?act={move}&steps={steps}", timeout=3)
+        if r is None:
+            raise ConnectionError("NORA isn't answering")
+        if move == "stop" or not r.get("ok"):
+            return r
+        t0 = time.time()
+        while time.time() - t0 < MIND_MOVE_TIMEOUT_S:
+            time.sleep(0.3)
+            s = link.get_json("/sensors?ctl=1") or {}
+            if not s.get("mindSteps"):
+                return {"ok": True, "stopped_at_a_wall": bool(s.get("blocked")), "front_cm": s.get("F")}
+        return {"ok": True, "note": "still moving"}
+
+    def phrase(n):
+        link.serial(f"SAY:{n}")
+        return True
+
+    return look, act, phrase
+
+
+def ida_body(link):
+    def look():
+        return {"senses": "none: you can't see or measure anything, and nobody can tell you what's around",
+                "how_you_move": "NORA blinks your moves to you over IR; you don't even know if you heard them",
+                "warning": "Be very hesitant: one short step at a time, and stop often."}
+
+    def act(move, steps):
+        if move == "stop":
+            link.ida("stop")
+            return {"ok": True}
+        end = time.time() + MIND_STEP_S   # one step only, whatever she planned: she's blind
+        while time.time() < end:
+            link.ida(move)                # resent while held, like the keys
+            time.sleep(0.15)
+        link.ida("stop")
+        return {"ok": True, "steps": 1, "note": "sent over NORA's IR: no way to know how it went"}
+
+    return look, act
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="192.168.4.1")
@@ -543,6 +648,25 @@ def main():
         if link is None:
             pygame.quit()
             sys.exit(0)
+
+    # the minds: only over WiFi, and only on a PC that can run them (mind.can_think())
+    mind_state = {"capable": False, "why": "checking this PC..."}
+    nora_mind = ida_mind = None
+    if isinstance(link, WifiLink):
+        n_look, n_act, n_phrase = nora_body(link)
+        nora_mind = mind.Mind("NORA", NORA_PERSONA, NORA_MOVES, n_look, n_act, voice=NORA_VOICE[0], rate=NORA_VOICE[1],
+                              pitch=NORA_VOICE[2], safety=NORA_SAFETY,
+                              phrases=NORA_PHRASES if PHRASEBOOK_ON_CARD else None,
+                              robot_phrase=n_phrase if PHRASEBOOK_ON_CARD else None)
+        i_look, i_act = ida_body(link)
+        ida_mind = mind.Mind("IDA", IDA_PERSONA, IDA_MOVES, i_look, i_act, voice=IDA_VOICE[0], rate=IDA_VOICE[1],
+                             pitch=IDA_VOICE[2], safety=IDA_SAFETY)
+
+        def check_mind():
+            mind_state["capable"], mind_state["why"] = mind.can_think()
+            if mind_state["capable"]:
+                link.become_mind_host()
+        threading.Thread(target=check_mind, daemon=True).start()
 
     # pull current mode/speed from the robot so the UI doesn't reset them
     # to "Manual"/100% out from under whatever was already running
@@ -793,6 +917,13 @@ def main():
                     if not is_bt: set_mode("IR")   # no BT command for this mode
                 elif ev.key == pygame.K_u: cycle_uv()
                 elif ev.key == pygame.K_m: link.music("Next")
+                elif ev.key == pygame.K_n and nora_mind and mind_state["capable"]:   # her MIND mode on / off
+                    link.mode("Manual" if nora_mind.on else "Mind")
+                elif ev.key == pygame.K_h and ida_mind and mind_state["capable"]:   # IDA's mind on / off
+                    if ida_mind.on:
+                        ida_mind.stop()
+                    else:
+                        ida_mind.start(goal="explore a little, carefully, and stay near NORA")
                 elif ev.key == pygame.K_x: cycle_speed()
                 elif ev.key in (pygame.K_PLUS, pygame.K_EQUALS, pygame.K_KP_PLUS):
                     speed = min(100, speed + 10)
@@ -866,7 +997,14 @@ def main():
         # UV, speed, or the motor lock -- reflect it here instead of showing
         # a stale state. Only update local UI state, never re-send the
         # command (that would just echo whatever we just received).
-        mode_names_all = ("Manual", "Auto", "Line", "IR")
+        mode_names_all = ("Manual", "Auto", "Line", "IR", "Mind")
+        if nora_mind:
+            in_mind = link.ok and t.get("mode") == 4
+            if in_mind and not nora_mind.on and mind_state["capable"]:
+                nora_mind.start(goal="patrol your room, keep the fleet in order, and tell everyone what you see")
+            elif not in_mind and nora_mind.on:
+                nora_mind.on = False   # she's out of MIND already: just stop thinking
+                nora_mind.state = "off"
         if "mode" in t:
             try:
                 srv_mode = mode_names_all[int(t["mode"])]
@@ -1021,6 +1159,12 @@ def main():
                 screen.blit(err_txt, err_txt.get_rect(centerx=W // 2, y=box.y + 88))
             hint2 = f_sml.render("Enter = confirm · Esc = cancel", True, DIM)
             screen.blit(hint2, hint2.get_rect(centerx=W // 2, y=box.y + 114))
+
+        for who, m, key in (("NORA", nora_mind, "N"), ("IDA", ida_mind, "H")):
+            if m and m.on:
+                mind_panel.draw(screen, pygame.Rect(8, H - 178, W - 16, 170), m, f_med, f_sml, who,
+                                note=f"{key}: off", colours=(TEXT, DIM, WARN, ACCENT))
+                break
 
         pygame.display.flip()
         clock.tick(60)
