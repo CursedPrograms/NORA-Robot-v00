@@ -249,7 +249,8 @@ Every key, remote button and Bluetooth letter. The same list opens in its own wi
 | A / Left | strafe left (hold) |
 | D / Right | strafe right (hold) |
 | Q / E | turn left / right (hold) |
-| | *driving keys work in Manual mode, with the wheels unlocked* |
+| Two at once | blend (controller): W+A forward and sliding left, W+Q a curve (her /drive) |
+| | *driving with the wheels unlocked; in Auto / Line / IR the controller takes over (Manual)* |
 | 1 / 2 / 3 / 4 | Manual / Auto / Line / IR-remote mode |
 | Space | play / pause music |
 | M | next track |
@@ -262,6 +263,9 @@ Every key, remote button and Bluetooth letter. The same list opens in its own wi
 | Tab / Shift+Tab | pick the next / previous fleet robot (controller) |
 | O / P / Y | picked robot: auto / manual / speed (controller) |
 | G / V | picked robot: unlock / lock its wheels (controller; UNLOCK / LOCK on the web page) |
+| STOP | stops her in any mode (controller: the D-pad's middle, or the pad's A) |
+| THEME | controller colours: default, light, custom (all from colour_scheme.xml) |
+| Emulate | controller: a pretend NORA on this PC, no robot (connection screen, or --emulate) |
 | F1 | this window (controller; KEYS on the web page) |
 | Esc | quit (controller) |
 
@@ -269,14 +273,14 @@ Every key, remote button and Bluetooth letter. The same list opens in its own wi
 
 | Key | Does |
 |---|---|
-| Left stick / D-pad | drive: forward, back, strafe (Manual mode, wheels unlocked) |
+| Left stick / D-pad | drive: forward, back, strafe, blended (half left is both; takes over from Auto) |
 | LB / RB, right stick, twist | turn left / right |
 | A (button 0) | stop |
 | B (1) | UV light: off, on, blink |
 | X (2) | play / pause music |
 | Y (3) | next track |
 | Back (6) / Start (7) | Auto / Manual mode |
-| | *plug it in any time* |
+| | *plug it in any time; Xbox, PlayStation and Switch pads all have these buttons* |
 
 **IR remote**
 
@@ -320,7 +324,23 @@ Every key, remote button and Bluetooth letter. The same list opens in its own wi
 pip install -r requirements.txt
 python scripts/controller.py                 # WiFi, NORA at 192.168.4.1:5002
 python scripts/controller.py --bt COM7       # Bluetooth serial instead
+python scripts/controller.py --emulate       # a pretend NORA on this PC (scripts/fake_nora.py), no robot
 ```
+`run.bat` / `run.ps1` / `run.sh` offer the web page, the controller, or the controller on EMULATE.
+
+- **Two keys blend**: W+A drives forward and slides left at once, W+Q curves, and the pad's stick is
+  analog (her `/drive?f=&s=&t=`, mixed over the four mecanum wheels; she stops by herself 0.5 s after the
+  last one). Firmware older than that gets the stronger of the two, one move at a time.
+- **Driving takes over**: driving her while she's in AUTO, LINE or IR puts her in MANUAL, so she does what's
+  pressed and stops when you let go. **STOP** works in any mode.
+- **Settings stick**: mode, UV and speed are sent again until her `/sensors` says so.
+- **Pads**: Xbox, PlayStation and Switch pads all have the same buttons (SDL's controller layer,
+  `gamepad_drive.py`); a flight stick or an unknown pad is read raw.
+- **THEME**: DEFAULT, LIGHT or CUSTOM, all from `colour_scheme.xml` (sampled from her avatar). The parts every
+  robot's controller shares are in `scripts/controller_kit.py`.
+- **EMULATE** (the connection screen, or `--emulate`): a pretend NORA in a pretend room: her four sonars
+  change as she drives, she won't drive into a wall closer than 15 cm, and she boots with her wheels locked.
+- Her MIND log: `~/.robot_minds/logs/NORA-<date>.log` (and `IDA-<date>.log`).
 
 ### Fleet IR link
 NORA drives [IDA](https://github.com/CursedPrograms/IDA-Robot-v00), MILA, WHIP, KIDA-01 and NIKA through her IR transmitter (GPIO 33). The frames are Samsung-format IR, one address per robot, with the same commands `0x48`–`0x4F` for all of them. No remote in the fleet uses that protocol, so nothing else reacts, and NORA ignores her own frames on her receiver. Drive commands repeat every 150 ms while held, with `stop` on release; each robot stops by itself if the link goes quiet.
@@ -429,7 +449,7 @@ NORA hears the others over **ESP-NOW** (WHIP, MILA) and **Bluetooth LE** (WHIP a
   <img src="images/screenshots/web-dashboard.png" alt="Web dashboard" width="640"/>
 </div>
 
-<p align="center"><i>Python controller, Web dashboard. Captured without a robot connected, so live values show their offline state.</i></p>
+<p align="center"><i>Python controller (on EMULATE, driving W+Q), Web dashboard (captured without a robot connected).</i></p>
 
 ---
 

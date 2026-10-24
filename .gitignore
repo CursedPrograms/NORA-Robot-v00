@@ -160,3 +160,6 @@ cython_debug/
 #.idea/
 
 /voice/
+
+# controller theme / custom colours (per PC)
+scripts/controller_settings.json

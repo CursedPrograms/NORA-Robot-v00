@@ -20,9 +20,14 @@ USAGE
 INSTALL
   pip install pygame requests            (pyserial too, only for Bluetooth)
 
+  Emulate:             python3 nora_controller.py --emulate   (a pretend NORA on this PC: fake_nora.py)
+
 CONTROLS (mirrors the web dashboard exactly -- same keys, same meanings)
   W/S, arrows  forward / backward          A/D, arrows  strafe left / right
   Q / E        turn left / right           Space        music play/pause
+  Two at once blend (W+A drives forward and slides left, W+Q curves), and so does the pad's stick
+  (her /drive; firmware without it: the stronger of the two). Driving while she drives herself
+  (AUTO / LINE / IR) takes over: she goes to MANUAL and stops when you let go. STOP: any mode.
   M            next track                  X            cycle speed 25/50/75/100%
   U            cycle UV                    1/2/3/4      manual / auto / line / remote mode
   +/-          speed nudge (BT only --      Esc          quit
@@ -49,6 +54,7 @@ import time
 import pygame
 
 import keymap   # scripts/keymap.py: the keymap window (F1)
+import controller_kit as kit   # scripts/controller_kit.py: themes, settings that stick, blended keys (every robot's)
 from gamepad_drive import PadDrive, rumble_level   # any gamepad, or ARM's flight stick
 import mind          # scripts/mind.py: the LLM minds (N: hers, H: IDA's), the same file in every controller
 import mind_panel    # scripts/mind_panel.py: a mind's strip in the window
@@ -69,6 +75,7 @@ class WifiLink:
         self.data = {}
         self.fleet = {"authority": "NORA", "robots": []}
         self.mind_host = False   # mind.can_think() said yes: check in on /sensors?ctl=1 (MIND mode needs it)
+        self.no_mix = False      # her firmware has no /drive (older than blended driving): one move at a time
         self._lock = threading.Lock()
         # commands fire every ~150ms while a key/button is held; a small
         # pool avoids spawning a fresh OS thread for every single one
@@ -140,6 +147,21 @@ class WifiLink:
 
     def stop(self):
         self._pool.submit(self._get, "/stop")
+
+    def drive_mix(self, f, s, t):
+        """Blended: forward, sideways (+ left), turn (+ left), -1..1 each. False if her firmware can't."""
+        if self.no_mix:
+            return False
+        self._pool.submit(self._mix, f, s, t)
+        return True
+
+    def _mix(self, f, s, t):
+        try:
+            r = self.requests.get(self.base + "/drive", params={"f": f, "s": s, "t": t}, timeout=1.0)
+            self.no_mix = r.status_code == 404
+            self.ok = True
+        except Exception:
+            self.ok = False
 
     # everything else ----------------------------------------------------
     def mode(self, m):         # 'Manual' 'Auto' 'Line'
@@ -245,6 +267,9 @@ class BtLink:
     def drive(self, action):
         self._send(self.DRIVE[action])
 
+    def drive_mix(self, f, s, t):   # the single-letter protocol has no blended drive
+        return False
+
     def stop(self):
         self._send("S")
 
@@ -284,19 +309,18 @@ class BtLink:
 # UI
 # ----------------------------------------------------------------------------
 
-# Same palette as KIDA's HUD (dark navy "circuit board" theme) — one look
-# across the fleet instead of every robot's controller having its own.
-BG      = (7, 9, 15)        # --bg     #07090f
-PANEL   = (10, 14, 26)      # --panel  #0a0e1a
-BORDER  = (30, 52, 88)      # --border #1e3458
-TEXT    = (215, 230, 255)   # --text-val #d7e6ff
-DIM     = (74, 95, 128)     # --text-dim #4a5f80
-ACCENT  = (100, 150, 230)   # --accent #6496e6
-WARN    = (255, 190, 80)    # --orange #ffbe50
-CRIT    = (200, 64, 64)     # --red    #c84040
-GOOD    = (70, 215, 100)    # --green  #46d764
-ACCENT_BG = (18, 26, 41)    # accent blended ~12% into BG, for "active" fills
-GOOD_BG   = (18, 46, 30)    # good blended into BG, for the CONNECT button
+# Colours: always from her colour_scheme.xml (sampled from her avatar), through controller_kit's
+# themes: DEFAULT, LIGHT or CUSTOM (THEME, top right; kept in controller_settings.json).
+def apply_theme(c):
+    globals().update(
+        BG=c["background"], PANEL=c["panel"], BORDER=c["border"], DIVIDER=c["divider"], TEXT=c["text"],
+        DIM=c["text_sec"], ACCENT=c["accent"], WARN=kit.mix(c["accent"], c["accent2"], 0.5), CRIT=c["accent2"],
+        GOOD=c["accent_hover"], ACCENT_BG=c["button_hover_bg"], DANGER_BG=c["danger_bg"],
+        GOOD_BG=kit.mix(c["accent_hover"], c["background"], 0.8), OFF_TEXT=kit.mix(c["text_sec"], c["background"], 0.6))
+
+
+SETTINGS = kit.Settings()
+apply_theme(SETTINGS.colours())
 
 W, H = 420, 870   # NORA's column (+90 over the base layout to fit the fleet panel)
 IDA_W = 230        # the IDA link column to its right
@@ -338,8 +362,8 @@ class Button:
     def draw(self, surf):
         if not self.enabled:
             pygame.draw.rect(surf, PANEL, self.rect, border_radius=6)
-            pygame.draw.rect(surf, (16, 22, 36), self.rect, 2, border_radius=6)
-            txt = self.font.render(self.label, True, (40, 52, 74))
+            pygame.draw.rect(surf, DIVIDER, self.rect, 2, border_radius=6)
+            txt = self.font.render(self.label, True, OFF_TEXT)
             surf.blit(txt, txt.get_rect(center=self.rect.center))
             return
         color = ACCENT if (self.active or self.pressed) else BORDER
@@ -371,7 +395,7 @@ def sensor_bar(surf, font, x, y, w, label, value, traveling=False):
     surf.blit(txt, (x + 10, y + 7))
     # distance bar
     bar_bg = pygame.Rect(x + 10, y + 32, w - 20, 5)
-    pygame.draw.rect(surf, (16, 22, 36), bar_bg, border_radius=3)
+    pygame.draw.rect(surf, DIVIDER, bar_bg, border_radius=3)
     if value > 0:
         pct = min(value / 100.0, 1.0)
         fill = CRIT if value < 15 else WARN if value < 28 else ACCENT
@@ -387,8 +411,9 @@ def connection_picker(screen, clock, f_big, f_med, f_sml, host, port, btport):
     choice = "wifi"       # 'wifi' or 'bt'
     error = ""
 
-    wifi_btn  = pygame.Rect(40, 120, W - 80, 60)
-    bt_btn    = pygame.Rect(40, 195, W - 80, 60)
+    wifi_btn  = pygame.Rect(40, 100, W - 80, 54)
+    bt_btn    = pygame.Rect(40, 162, W - 80, 54)
+    emu_btn   = pygame.Rect(40, 224, W - 80, 54)
     host_box  = pygame.Rect(40, 300, 220, 40)
     port_box  = pygame.Rect(270, 300, 110, 40)
     btp_box   = pygame.Rect(40, 300, W - 80, 40)
@@ -397,6 +422,8 @@ def connection_picker(screen, clock, f_big, f_med, f_sml, host, port, btport):
     def try_connect():
         nonlocal error
         try:
+            if choice == "emulate":
+                return emulated_link()
             if choice == "wifi":
                 link = WifiLink(fields["host"], int(fields["port"]))
                 # quick reachability probe so bad addresses fail here, not later
@@ -438,6 +465,8 @@ def connection_picker(screen, clock, f_big, f_med, f_sml, host, port, btport):
                     choice = "wifi"; error = ""
                 elif bt_btn.collidepoint(ev.pos):
                     choice = "bt"; error = ""
+                elif emu_btn.collidepoint(ev.pos):
+                    choice = "emulate"; error = ""
                 elif choice == "wifi" and host_box.collidepoint(ev.pos):
                     focus = "host"
                 elif choice == "wifi" and port_box.collidepoint(ev.pos):
@@ -460,6 +489,8 @@ def connection_picker(screen, clock, f_big, f_med, f_sml, host, port, btport):
              "PC joins the NORA network — full dashboard"),
             (bt_btn, "bt", "Bluetooth",
              "needs a BT adapter + paired serial port"),
+            (emu_btn, "emulate", "Emulate",
+             "a pretend NORA on this PC: no robot needed"),
         ):
             sel = choice == key
             pygame.draw.rect(screen, ACCENT_BG if sel else PANEL, rect,
@@ -472,7 +503,9 @@ def connection_picker(screen, clock, f_big, f_med, f_sml, host, port, btport):
                         (rect.x + 16, rect.y + 32))
 
         # address fields
-        if choice == "wifi":
+        if choice == "emulate":
+            pass
+        elif choice == "wifi":
             for box, key, label in ((host_box, "host", "host"),
                                     (port_box, "port", "port")):
                 pygame.draw.rect(screen, PANEL, box, border_radius=6)
@@ -598,6 +631,20 @@ def ida_body(link):
     return look, act
 
 
+FAKE = {"robot": None}   # EMULATE: the fake NORA (fake_nora.py) running in here
+
+
+def emulated_link():
+    """A fake NORA on this PC and a WiFi link to her: (link, label), or (None, None)."""
+    import fake_nora
+    try:
+        FAKE["robot"] = fake_nora.start(quiet=True)
+    except OSError as e:
+        print(f"Can't start the fake NORA: {e}", file=sys.stderr)
+        return None, None
+    return WifiLink("127.0.0.1", 5002), "EMULATED NORA"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="192.168.4.1")
@@ -606,6 +653,8 @@ def main():
                     help="skip the picker and connect over WiFi")
     ap.add_argument("--bt", metavar="SERIAL_PORT",
                     help="skip the picker and connect over this serial port")
+    ap.add_argument("--emulate", action="store_true",
+                    help="a pretend NORA on this PC (fake_nora.py), no robot needed")
     ap.add_argument("--ladder", action="store_true",
                     help="join / host the fleet's WiFi (fleet_ladder.py; FLEET_LADDER=1 does the same)")
     args = ap.parse_args()
@@ -614,7 +663,8 @@ def main():
 
     pygame.init()
     screen = pygame.display.set_mode((WIN_W, H))
-    pygame.display.set_caption("NORA Control")
+    pygame.display.set_caption("NORA Control")
+
     try:  # window icon: the robot's avatar
         pygame.display.set_icon(pygame.image.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "images", "nora-icon.png")))
     except (pygame.error, OSError):
@@ -625,7 +675,11 @@ def main():
     f_med = pygame.font.SysFont("monospace", 15, bold=True)
     f_sml = pygame.font.SysFont("monospace", 13)
 
-    if args.bt:
+    if args.emulate:
+        link, transport = emulated_link()
+        if link is None:
+            pygame.quit(); sys.exit(1)
+    elif args.bt:
         try:
             link, transport = BtLink(args.bt), "BT " + args.bt
         except ImportError:
@@ -682,6 +736,7 @@ def main():
         if sensors and "lock" in sensors:
             init_locked = int(sensors["lock"]) == 1
 
+    mode_names_all = ("Manual", "Auto", "Line", "IR", "Mind")
     mode = init_mode
     uv_state = 0
     speed = init_speed
@@ -700,16 +755,22 @@ def main():
         return b
 
     def update_dpad_enabled():
-        enabled = (mode == "Manual") and not motor_locked
+        # any mode: pressing one takes over (she goes to MANUAL); only her wheel lock stops them
+        enabled = not motor_locked
         for db in dpad_btns.values():
             db.enabled = enabled
-        stop_btn.enabled = enabled
+
+    pending = kit.Pending()   # mode / UV / speed re-sent until her /sensors says so (WiFi)
+    is_wifi = isinstance(link, WifiLink)
 
     # mode buttons
     def set_mode(m):
         nonlocal mode
         mode = m
-        link.mode(m)
+        if is_wifi and m in mode_names_all:
+            pending.want("mode", mode_names_all.index(m), lambda: link.mode(m))
+        else:
+            link.mode(m)
         for b, name in zip(mode_btns, ("Manual", "Auto", "Line")):
             b.active = (name == m)
         update_dpad_enabled()
@@ -723,7 +784,10 @@ def main():
     def cycle_uv():
         nonlocal uv_state
         uv_state = (uv_state + 1) % 3
-        link.uv(uv_state)
+        if is_wifi:
+            pending.want("uv", uv_state, lambda u=uv_state: link.uv(u))
+        else:
+            link.uv(uv_state)   # BT's U cycles: never sent twice
         uv_btn.label = ["UV OFF", "UV ON", "UV BLINK"][uv_state]
         uv_btn.active = uv_state != 0
 
@@ -754,8 +818,23 @@ def main():
     add((345, 458, 55, 38), "[]", lambda: link.music("Stop"))
 
     # dpad
+    def take_over():
+        """Driving her while she drives herself (AUTO / LINE / IR): MANUAL, so she does what's
+        pressed and stops when it's let go. (Her firmware only drives from the web in MANUAL.)"""
+        if mode not in ("Manual", "Mind"):
+            set_mode("Manual")
+
+    def stop_all():
+        """STOP, in any mode: MANUAL, wheels still."""
+        nonlocal active_drive, keys_driving
+        active_drive, keys_driving = None, False
+        if mode != "Manual":
+            set_mode("Manual")
+        link.stop()
+
     def start_drive(action):
         nonlocal active_drive
+        take_over()
         active_drive = action
         link.drive(action)
 
@@ -775,21 +854,25 @@ def main():
         ("turnR", (pad_cx + gap + bs // 2, pad_cy - bs // 2), ">@"),
     ]
     dpad_btns = {}
-    dpad_enabled_init = (init_mode == "Manual") and not motor_locked
+    dpad_enabled_init = not motor_locked
     for action, (bx, by), lbl in dpad_defs:
         dpad_btns[action] = add((bx, by, bs, bs), lbl,
                                 lambda a=action: start_drive(a),
                                 enabled=dpad_enabled_init)
-    stop_btn = add((pad_cx - bs // 2, pad_cy - bs // 2, bs, bs), "STOP",
-                   lambda: link.stop(), enabled=dpad_enabled_init)
+    stop_btn = add((pad_cx - bs // 2, pad_cy - bs // 2, bs, bs), "STOP", stop_all)
 
-    key_drive = {
-        pygame.K_UP: "fw", pygame.K_DOWN: "bw",
-        pygame.K_LEFT: "left", pygame.K_RIGHT: "right",
-        pygame.K_w: "fw", pygame.K_s: "bw",
-        pygame.K_a: "left", pygame.K_d: "right",
-        pygame.K_q: "turnL", pygame.K_e: "turnR",
-    }
+    # held keys blend (controller_kit.keys_vector): W+A = forward + slide left, W+Q = a curve
+    KEYS = {"fwd": (pygame.K_w, pygame.K_UP), "back": (pygame.K_s, pygame.K_DOWN),
+            "left": (pygame.K_a, pygame.K_LEFT), "right": (pygame.K_d, pygame.K_RIGHT),
+            "turn_l": (pygame.K_q,), "turn_r": (pygame.K_e,)}
+    keys_driving = False      # the keys / stick are driving her (not a held D-pad button)
+    last_mix = 0.0
+
+    def theme_next():
+        apply_theme(SETTINGS.next_theme())
+        theme_btn.label = f"THEME: {SETTINGS.theme}"
+
+    theme_btn = add((W - 152, 12, 140, 26), f"THEME: {SETTINGS.theme}", theme_next)
 
     # ---- fleet remote panel: drives IDA, MILA, WHIP or KIDA through NORA's
     # IR transmitter; the avatar, name and colour follow the selected robot ----
@@ -843,12 +926,18 @@ def main():
 
     SPEED_PRESETS = [25, 50, 75, 100]
 
+    def send_speed(pct):
+        if is_wifi:
+            pending.want("spd", pct, lambda: link.speed(pct))
+        else:
+            link.speed(pct)   # no-op over BT (no absolute-set command there)
+
     def cycle_speed():
         nonlocal speed
         idx = min(range(len(SPEED_PRESETS)), key=lambda i: abs(SPEED_PRESETS[i] - speed))
         idx = (idx + 1) % len(SPEED_PRESETS)
         speed = SPEED_PRESETS[idx]
-        link.speed(speed)   # no-op over BT (no absolute-set command there)
+        send_speed(speed)
 
     slider = pygame.Rect(70, 515, W - 140, 8)
     dragging_slider = False
@@ -859,7 +948,7 @@ def main():
         nonlocal speed
         pct = round((mx - slider.x) / slider.w * 100)
         speed = max(0, min(100, pct))
-        link.speed(speed)
+        send_speed(speed)
 
     pad = PadDrive()          # a gamepad / joystick: drives like the keys (keymap.py, Gamepad)
     pad_drive = None          # the drive the pad is holding
@@ -897,8 +986,6 @@ def main():
                     running = False
                 elif ev.key == pygame.K_F1:
                     keymap.open_window()   # every key, remote button and BT letter, in its own window
-                elif ev.key in key_drive and mode == "Manual":
-                    start_drive(key_drive[ev.key])
                 elif ev.key == pygame.K_TAB:
                     select_robot(-1 if ev.mod & pygame.KMOD_SHIFT else 1)
                 elif ev.key in key_ida:
@@ -927,14 +1014,12 @@ def main():
                 elif ev.key == pygame.K_x: cycle_speed()
                 elif ev.key in (pygame.K_PLUS, pygame.K_EQUALS, pygame.K_KP_PLUS):
                     speed = min(100, speed + 10)
-                    link.nudge_speed(True) if is_bt else link.speed(speed)
+                    link.nudge_speed(True) if is_bt else send_speed(speed)
                 elif ev.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
                     speed = max(0, speed - 10)
-                    link.nudge_speed(False) if is_bt else link.speed(speed)
+                    link.nudge_speed(False) if is_bt else send_speed(speed)
 
             elif ev.type == pygame.KEYUP:
-                if ev.key in key_drive and active_drive == key_drive[ev.key]:
-                    stop_drive()
                 if ev.key in key_ida and ida_active == key_ida[ev.key]:
                     ida_stop()
 
@@ -961,17 +1046,33 @@ def main():
             elif ev.type == pygame.MOUSEMOTION and dragging_slider:
                 set_speed_from_mouse(ev.pos[0])
 
-        # gamepad: the stick / D-pad drives (Manual mode, like the keys), buttons do the rest
+        # held keys and the pad's stick drive her, blended (W+A, the stick half left...): her
+        # /drive, resent every 150 ms; firmware without it gets the strongest of them, one at a time
         if not pw_prompt:
-            d = pad.direction() if mode == "Manual" and not motor_locked else None
-            if d != pad_drive:
-                if d:
-                    start_drive(d)
-                elif active_drive == pad_drive:
-                    stop_drive()
-                pad_drive = d
+            pressed = pygame.key.get_pressed()
+            vec = kit.keys_vector(pressed, KEYS)
+            if not any(vec):
+                vec = pad.vector()
+            pad_drive = None
+            if any(vec) and not motor_locked:
+                take_over()
+                f, sd, tn = vec
+                if now - last_mix > 0.15 or not keys_driving:
+                    if not link.drive_mix(f, sd, tn):
+                        action = ("fw" if f > 0 else "bw") if abs(f) >= max(abs(sd), abs(tn)) else \
+                                 ("left" if sd > 0 else "right") if abs(sd) >= abs(tn) else ("turnL" if tn > 0 else "turnR")
+                        if action != active_drive:
+                            active_drive = action
+                            link.drive(action)
+                    last_mix = now
+                keys_driving = True
+                pad_drive = "fw" if f > 0 else "bw" if f < 0 else "left" if sd > 0 else "right" if sd < 0 else None
+            elif keys_driving:
+                keys_driving = False
+                active_drive = None
+                link.stop()
             for b in pad.presses():
-                if b == 0: stop_drive(); link.stop()
+                if b == 0: stop_all()
                 elif b == 1: cycle_uv()
                 elif b == 2: link.music("Play")
                 elif b == 3: link.music("Next")
@@ -979,7 +1080,7 @@ def main():
                 elif b == 7: set_mode("Manual")
 
         # repeat held drive command every 150ms like the website
-        if active_drive and mode == "Manual" and now - last_repeat > 0.15:
+        if active_drive and not keys_driving and mode == "Manual" and now - last_repeat > 0.15:
             link.drive(active_drive)
             last_repeat = now
         if ida_active and now - ida_last > 0.15:
@@ -997,7 +1098,6 @@ def main():
         # UV, speed, or the motor lock -- reflect it here instead of showing
         # a stale state. Only update local UI state, never re-send the
         # command (that would just echo whatever we just received).
-        mode_names_all = ("Manual", "Auto", "Line", "IR", "Mind")
         if nora_mind:
             in_mind = link.ok and t.get("mode") == 4
             if in_mind and not nora_mind.on and mind_state["capable"]:
@@ -1005,7 +1105,9 @@ def main():
             elif not in_mind and nora_mind.on:
                 nora_mind.on = False   # she's out of MIND already: just stop thinking
                 nora_mind.state = "off"
-        if "mode" in t:
+        if is_wifi and link.ok:
+            pending.check(t)
+        if "mode" in t and pending.value("mode") is None:
             try:
                 srv_mode = mode_names_all[int(t["mode"])]
             except (ValueError, IndexError):
@@ -1016,12 +1118,12 @@ def main():
                     b.active = (name == mode)
                 update_dpad_enabled()
 
-        if "uv" in t and int(t["uv"]) != uv_state:
+        if "uv" in t and int(t["uv"]) != uv_state and pending.value("uv") is None:
             uv_state = int(t["uv"])
             uv_btn.label = ["UV OFF", "UV ON", "UV BLINK"][uv_state]
             uv_btn.active = uv_state != 0
 
-        if not is_bt and "spd" in t and int(t["spd"]) != speed:
+        if not is_bt and "spd" in t and int(t["spd"]) != speed and pending.value("spd") is None and not dragging_slider:
             speed = int(t["spd"])
 
         if "lock" in t and (int(t["lock"]) == 1) != motor_locked and not pw_prompt:
@@ -1054,9 +1156,11 @@ def main():
         for i, line in enumerate(("I J K L  drive", "O auto · P manual", "Y speed · Tab robot")):
             lbl = f_sml.render(line, True, DIM)
             screen.blit(lbl, lbl.get_rect(centerx=icx, y=500 + i * 18))
-        sub = f_sml.render(transport + ("   connected" if link.ok else "   OFFLINE"),
-                           True, GOOD if link.ok else CRIT)
-        screen.blit(sub, sub.get_rect(centerx=W // 2, y=46))
+        status_text = transport + ("   connected" if link.ok else "   OFFLINE")
+        if FAKE["robot"]:
+            status_text = f"EMULATED  {FAKE['robot'].last_log()}"
+        sub = f_sml.render(kit.fit(status_text, f_sml, W - 88), True, GOOD if link.ok else CRIT)
+        screen.blit(sub, sub.get_rect(centerx=max(W // 2, 76 + sub.get_width() // 2), y=46))   # clear of her avatar
 
         # DIR_FRONT/RIGHT/BACK/LEFT = 0/1/2/3, reported in "dir" while mode==1 (Auto)
         auto_dir = int(t["dir"]) if t.get("mode") == 1 and "dir" in t else -1
@@ -1121,7 +1225,7 @@ def main():
         speed_col = DIM if is_bt else ACCENT
         screen.blit(f_sml.render("Speed (BT: +/- only)" if is_bt else "Speed", True, DIM),
                    (20, 508))
-        pygame.draw.rect(screen, (16, 22, 36), slider, border_radius=4)
+        pygame.draw.rect(screen, DIVIDER, slider, border_radius=4)
         pygame.draw.rect(screen, speed_col,
                          (slider.x, slider.y, int(slider.w * speed / 100), 8),
                          border_radius=4)
@@ -1138,9 +1242,9 @@ def main():
         if ida_active:
             pygame.draw.rect(screen, robot_col, ida_btns[ida_active].rect, 3, border_radius=6)
 
-        hint = f_sml.render(
-            "WASD drive · Q/E turn · space play · M next · X speed · U uv · 1-4 mode · F1 all keys",
-            True, DIM)
+        hint = f_sml.render(kit.fit(
+            "WASD drive (W+A blends) · Q/E turn · space play · M next · X speed · U uv · 1-4 mode · F1 all keys",
+            f_sml, WIN_W - 20), True, DIM)
         screen.blit(hint, hint.get_rect(centerx=WIN_W // 2, y=H - 28))
 
         if pw_prompt:
@@ -1170,6 +1274,9 @@ def main():
         clock.tick(60)
 
     stop_drive()
+    link.stop()
+    if FAKE["robot"]:
+        FAKE["robot"].stop()
     if is_bt:
         link.ser.close()
     pygame.quit()

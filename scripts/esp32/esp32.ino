@@ -237,6 +237,10 @@ unsigned long pendingLinkAt = 0;
 
 bool irStrafe = true;  // Enter toggles Left/Right between strafe (true) and turn (false)
 unsigned long irLastDriveMs = 0;
+// Blended driving (/drive?f=&s=&t=): the controller resends it every 150 ms while held, so she
+// stops by herself DRIVE_MIX_TIMEOUT_MS after the last one (a closed controller can't leave her running).
+#define DRIVE_MIX_TIMEOUT_MS 500
+unsigned long driveMixMs = 0;
 
 // =====================
 // DRIVE MODE
@@ -591,6 +595,16 @@ void setup() {
     if (driveMode == MODE_MANUAL) stopMotors();
     server.send(200, "text/plain", "OK");
   });
+  // Blended: f forward, s sideways (+ left), t turn (+ anticlockwise), each -1..1, all at once
+  // (W+A drives forward and slides left; W+Q curves). Resent while held; see DRIVE_MIX_TIMEOUT_MS.
+  server.on("/drive", []() {
+    if (driveMode == MODE_MANUAL) {
+      driveMix(constrain(server.arg("f").toFloat(), -1.0f, 1.0f), constrain(server.arg("s").toFloat(), -1.0f, 1.0f),
+               constrain(server.arg("t").toFloat(), -1.0f, 1.0f));
+      driveMixMs = millis();
+    }
+    server.send(200, "text/plain", "OK");
+  });
 
   // Mode switching
   server.on("/modeManual", []() {
@@ -892,6 +906,10 @@ void loop() {
   if (driveMode == MODE_IR && irLastDriveMs != 0 && now - irLastDriveMs > IR_DRIVE_TIMEOUT_MS) {
     stopMotors();
     irLastDriveMs = 0;
+  }
+  if (driveMixMs != 0 && now - driveMixMs > DRIVE_MIX_TIMEOUT_MS) {   // /drive went quiet: let go
+    driveMixMs = 0;
+    if (driveMode == MODE_MANUAL) stopMotors();
   }
 
   // ---- Sound recency decay (the event itself is latched in parseSensorLine) ----
@@ -2590,6 +2608,29 @@ void turnRight(int scale) {
   setMotor(ENA2, M2_1, M2_2, HIGH, LOW, cal[1], scale);
   setMotor(ENB1, M3_1, M3_2, HIGH, LOW, cal[2], scale);
   setMotor(ENB2, M4_1, M4_2, LOW, HIGH, cal[3], scale);
+}
+
+// One wheel at v (-1..1, + = that wheel's forward); flip: its forward is HIGH, LOW (M3, M4)
+void wheel(int ena, int pin1, int pin2, bool flip, float v, int calSpeed) {
+  const bool fwd = v >= 0;
+  const int s1 = (fwd != flip) ? LOW : HIGH;
+  setMotor(ena, pin1, pin2, s1, s1 == LOW ? HIGH : LOW, calSpeed, (int)(fabsf(v) * 100));
+}
+
+// Mecanum mixing for /drive: forward, sideways (+ left) and turning (+ anticlockwise) together.
+// From the four moves above: M1 = f - s - t, M2 = f + s + t, M3 = f + s - t, M4 = f - s + t, scaled
+// so no wheel goes past full. A direction with a wall in it (blockedInDir) is dropped, the rest kept.
+void driveMix(float f, float s, float t) {
+  if ((f > 0 && blockedInDir(DIR_FRONT)) || (f < 0 && blockedInDir(DIR_BACK))) f = 0;
+  if ((s > 0 && blockedInDir(DIR_LEFT)) || (s < 0 && blockedInDir(DIR_RIGHT))) s = 0;
+  float v[4] = { f - s - t, f + s + t, f + s - t, f - s + t };
+  float m = 1;
+  for (int i = 0; i < 4; i++) m = max(m, fabsf(v[i]));
+  if (fabsf(f) + fabsf(s) + fabsf(t) < 0.05f) { stopMotors(); return; }
+  wheel(ENA1, M1_1, M1_2, false, v[0] / m, cal[0]);
+  wheel(ENA2, M2_1, M2_2, false, v[1] / m, cal[1]);
+  wheel(ENB1, M3_1, M3_2, true,  v[2] / m, cal[2]);
+  wheel(ENB2, M4_1, M4_2, true,  v[3] / m, cal[3]);
 }
 
 void stopMotors() {

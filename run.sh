@@ -7,6 +7,8 @@
 #   ./run.sh web        open the web dashboard in the browser
 #   ./run.sh app        run the pygame controller (scripts/controller.py,
 #                       via scripts/controller.sh which owns its own venv)
+#   ./run.sh emulate    the controller on a pretend NORA (no robot)
+# Buddies: run.bat, run.ps1
 # =============================================================
 
 set -u
@@ -32,17 +34,20 @@ launch_app() {
 case "${1:-}" in
     web) launch_web ;;
     app) launch_app ;;
+    emulate) exec bash "$CONTROLLER_LAUNCHER" --emulate ;;
     *)
         echo "==============================="
         echo "   NORA — pick a controller"
         echo "==============================="
         echo "  1) Website  (browser dashboard)"
         echo "  2) App      (pygame controller)"
+        echo "  3) App, emulated (no robot)"
         echo "  q) quit"
         read -rp "> " pick
         case "$pick" in
             1) launch_web ;;
             2) launch_app ;;
+            3) exec bash "$CONTROLLER_LAUNCHER" --emulate ;;
             *) echo "bye" ;;
         esac
         ;;
