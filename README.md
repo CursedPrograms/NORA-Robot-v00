@@ -399,6 +399,7 @@ Phrases (link commands): `0x40` hello, `0x41` how are you, `0x42` happy, `0x43` 
 <summary><b>📂 Documentation & Assets</b></summary>
 
 * [ACEBOTT ESP32 Max V1.0 Docs](https://acebottteam.github.io/acebott-docs-master/board/ESP32/QA007%20ESP32%20Max%20V1.0%20Controller%20Board.html)
+* [ACEBOTT: Getting started with ESP32](https://acebott.com/docs/getting-started-with-esp32/)
 * [CH340 Driver Download](https://acebottteam.github.io/acebott-docs-master/getting%20started/Arduino/Download%20CH340%20Driver%20on%20Windows%20System.html)
 
 </details>
