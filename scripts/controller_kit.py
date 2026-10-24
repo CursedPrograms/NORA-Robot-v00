@@ -12,11 +12,17 @@ others. Fleet TODO section 13 lists who has it.
     pending.value("mode")                  # what was just picked (show it before the robot confirms)
     keys_vector(pressed, KEYS)             # held keys -> (forward, side, turn), -1..1 each: W+A is both
     FakeRobot                              # a pretend robot's web server for EMULATE (fake_<robot>.py)
+    voice = Voice("Microsoft David Desktop", LINES)   # the robot talking through this PC's speakers:
+    voice.say("wall")                      #   a random line for that event, not too often, one at a time
 """
 
 import json
 import os
+import random
 import re
+import shutil
+import subprocess
+import sys
 import threading
 import time
 from collections import deque
@@ -164,6 +170,58 @@ def keys_vector(pressed, keys):
     def held(name):
         return any(pressed[k] for k in keys.get(name, ()))
     return (held("fwd") - held("back"), held("left") - held("right"), held("turn_l") - held("turn_r"))
+
+
+# ---- a voice through this PC's speakers ----
+
+class Voice:
+    """The robot talking through this PC, outside MIND mode too: say(event) speaks a random line
+    from lines[event] ({...} filled from fmt), at most once every COOLDOWN_S for the same event and
+    one line at a time (a line that comes in while another is spoken waits; a third replaces it).
+    Windows: its own text-to-speech (mind.windows_say, the voices the robots' lines are made with);
+    Linux / macOS: spd-say or espeak if they're there. on = False keeps it quiet."""
+
+    COOLDOWN_S = 8.0
+
+    def __init__(self, voice, lines, rate=0, pitch="medium"):
+        self.voice, self.rate, self.pitch, self.lines = voice, rate, pitch, lines
+        self.on = True
+        self.said = ""                 # the last line, for the window
+        self._last = {}                # event -> when it last spoke
+        self._next = None              # the line waiting its turn
+        self._wake = threading.Event()
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def say(self, event, **fmt):
+        now = time.monotonic()
+        if not self.on or event not in self.lines or now - self._last.get(event, -1e9) < self.COOLDOWN_S:
+            return
+        self._last[event] = now
+        self._next = random.choice(self.lines[event]).format(**fmt)
+        self._wake.set()
+
+    def _run(self):
+        while True:
+            self._wake.wait()
+            self._wake.clear()
+            text, self._next = self._next, None
+            if text and self.on:
+                self.said = text
+                self._speak(text)
+                if self._next:
+                    self._wake.set()
+
+    def _speak(self, text):
+        try:
+            if sys.platform == "win32":
+                import mind   # the same file in every controller
+                mind.windows_say(text, self.voice, self.rate, self.pitch)
+            elif shutil.which("spd-say"):
+                subprocess.run(["spd-say", "-w", text], timeout=30)
+            elif shutil.which("espeak"):
+                subprocess.run(["espeak", text], timeout=30)
+        except Exception:
+            pass   # no voice on this PC: the line still shows in the window
 
 
 # ---- EMULATE: a pretend robot's web server ----
