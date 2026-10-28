@@ -232,6 +232,8 @@ unsigned long pendingLinkAt = 0;
 #define IR_FFWD 0x1E
 #define IR_REWIND 0xA
 #define IR_5 0x19   // the wheel lock, on and off: one button, no PIN (the lock is a safety catch, not security)
+#define IR_6 0x1B   // slower: speed down 10 %
+#define IR_7 0x11   // faster: speed up 10 %
 
 #define IR_DRIVE_TIMEOUT_MS 250  // stop if no drive repeat arrives within this long (no key-up event over IR)
 
@@ -1417,6 +1419,16 @@ void handleIR() {
             notifyLock();
             break;
 
+          // ---- speed: 6 slower, 7 faster, 10 % a press (always allowed; like Bluetooth's - / +) ----
+          case IR_6:
+            speedPct = constrain(speedPct - 10, 10, 100);
+            notifySpeed();
+            break;
+          case IR_7:
+            speedPct = constrain(speedPct + 10, 10, 100);
+            notifySpeed();
+            break;
+
           // ---- music, forwarded to the Arduino (always allowed) ----
           case IR_PLAY_PAUSE: Serial.println("M:PLAY"); break;
           case IR_STOP: Serial.println("M:STOP"); break;
@@ -1580,6 +1592,25 @@ void moveDir(int dir, int scale) {
   }
 }
 
+// Auto mode: drive `dir` at `scale` %, sliding away from a wall beside her (the two sensors across
+// her way), so the sides stop scraping. Further than SIDE_CM: straight on. Closer: she slides
+// away the more, the closer it is; under SIDE_CRITICAL_CM she stops going on and only slides away.
+// Mecanum wheels can do both at once (driveMix).
+const float SIDE_CM = 20.0;
+const float SIDE_CRITICAL_CM = 9.0;
+void moveDirAway(int dir, int scale, const float dist[4]) {
+  const int a = (dir + 1) % 4, b = (dir + 3) % 4;   // the sensors either side of her way
+  const float da = dist[a], db = dist[b], near = min(da, db);
+  if (near >= SIDE_CM) { moveDir(dir, scale); return; }
+  // along: front +f, back -f, left +s, right -s
+  static const float F[4] = { 1, 0, -1, 0 }, S[4] = { 0, -1, 0, 1 };
+  const float push = (SIDE_CM - near) / (SIDE_CM - SIDE_CRITICAL_CM);   // 0 at SIDE_CM, 1 at critical
+  const float go = near < SIDE_CRITICAL_CM ? 0 : scale / 100.0f;
+  const float away = 0.6f * min(push, 1.0f);
+  const int from = da < db ? a : b;                  // slide away from the nearer wall
+  driveMix(go * F[dir] - away * F[from], go * S[dir] - away * S[from], 0);
+}
+
 int clearestDir(float dist[4]) {
   int best = 0;
   for (int d = 1; d < 4; d++)
@@ -1609,11 +1640,12 @@ void AutonomousMode(float front, float left, float back, float right) {
     return;
   }
   const bool caution = fleetNearAdvice() != FLEET_CLEAR;
-  const float DANGER = caution ? 40.0 : 28.0;
-  const float CRITICAL = caution ? 22.0 : 15.0;
+  // she ran into walls at 15 / 28 (2026-10-28): stop sooner, slow down sooner
+  const float DANGER = caution ? 50.0 : 40.0;
+  const float CRITICAL = caution ? 30.0 : 22.0;
   const int CRUISE = caution ? 60 : 100;   // % speed when the way is clear
   const float SWITCH_MARGIN = 8.0;  // new dir must clear the old one by this much
-  const float UNKNOWN_CM = 40.0;    // cautious guess once a sensor goes stale
+  const float UNKNOWN_CM = 45.0;    // cautious guess once a sensor goes stale (just past DANGER)
   const int CREEP_SCALE = 55;       // % speed while inside the DANGER band
   const unsigned long STALE_MS = 800;
   const unsigned long STUCK_MS = 1200;
@@ -1667,7 +1699,7 @@ void AutonomousMode(float front, float left, float back, float right) {
     }
     autoStuckSinceMs = 0;
     autoDir = best;
-    moveDir(autoDir, CRUISE);
+    moveDirAway(autoDir, CRUISE, dist);
     autoState = AUTO_MOVING;
     return;
   }
@@ -1683,14 +1715,14 @@ void AutonomousMode(float front, float left, float back, float right) {
     if (best != autoDir && dist[best] > dist[autoDir] + SWITCH_MARGIN && dist[best] > DANGER) {
       stopMotors();
       autoDir = best;
-      moveDir(autoDir, CRUISE);
+      moveDirAway(autoDir, CRUISE, dist);
       autoState = AUTO_COOLDOWN;
       autoCooldown = now + 150;
     } else {
-      moveDir(autoDir, CREEP_SCALE);  // getting close — creep instead of full speed
+      moveDirAway(autoDir, CREEP_SCALE, dist);  // getting close — creep instead of full speed
     }
   } else {
-    moveDir(autoDir, CRUISE);  // clear again — resume cruising speed
+    moveDirAway(autoDir, CRUISE, dist);  // clear again — resume cruising speed
   }
 }
 

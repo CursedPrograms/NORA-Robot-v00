@@ -1,6 +1,6 @@
-Implement wheel lock/unlock on the remote - It requires no Password like the webpage.
+[done] Implement wheel lock/unlock on the remote - It requires no Password like the webpage.
 
-Implement speed control on the remote
+[done in code, not flashed] Implement speed control on the remote (6 slower, 7 faster, 10 % a press)
 
 Replace the AHT10 sensor and connect it to 3.3V (physical/hardware modification, not code)
 
@@ -10,7 +10,7 @@ Add a buzzer
 
 Use the light sensor to turn on the UV light when dark (and off when bright)
 
-Improve obstacle avoidance (currently inaccurate; the sides scrape walls). It should stop and strafe away if a left/right sensor gets too close to a wall. The stopping distance is also to small it runs into walls.
+[done in code, not flashed: stops at 22 cm, slows from 40, slides off a side wall from 20 cm, only slides under 9 cm] Improve obstacle avoidance (currently inaccurate; the sides scrape walls). It should stop and strafe away if a left/right sensor gets too close to a wall. The stopping distance is also to small it runs into walls.
 
 [done] Use the IR transmitter to steer MILA, KIDA01, WHIP (fleet link, /link?r=&c=, panel tabs)
 

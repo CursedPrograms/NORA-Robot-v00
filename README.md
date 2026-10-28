@@ -291,6 +291,7 @@ Every key, remote button and Bluetooth letter. The same list opens in its own wi
 | Enter | switch Left / Right between strafing and turning |
 | 1 / 2 / 3 / 4 | Manual / Auto / Line / IR-remote mode |
 | 5 | the wheel lock: unlock / lock (one button, no PIN) |
+| 6 / 7 | slower / faster: speed down / up 10 % |
 | Play/Pause | play / pause music |
 | Stop | stop music |
 | Next / FFWD | next track |
