@@ -164,8 +164,11 @@ class WifiLink:
             self.ok = False
 
     # everything else ----------------------------------------------------
-    def mode(self, m):         # 'Manual' 'Auto' 'Line'
+    def mode(self, m):         # 'Manual' 'Auto' 'Line' 'Follow'
         self._pool.submit(self._get, "/mode" + m)
+
+    def act(self, what):       # 'hello' 'dance': on the spot, in Manual
+        self._pool.submit(self._get, "/act?do=" + what)
 
     def uv(self, state):       # 0 1 2
         path = ["/uvOff", "/uvOn", "/uvBlink"][state]
@@ -736,7 +739,7 @@ def main():
         if sensors and "lock" in sensors:
             init_locked = int(sensors["lock"]) == 1
 
-    mode_names_all = ("Manual", "Auto", "Line", "IR", "Mind")
+    mode_names_all = ("Manual", "Auto", "Line", "IR", "Mind", "Follow")
     mode = init_mode
     uv_state = 0
     speed = init_speed
@@ -771,15 +774,18 @@ def main():
             pending.want("mode", mode_names_all.index(m), lambda: link.mode(m))
         else:
             link.mode(m)
-        for b, name in zip(mode_btns, ("Manual", "Auto", "Line")):
+        for b, name in zip(mode_btns, ("Manual", "Auto", "Line", "Follow")):
             b.active = (name == m)
         update_dpad_enabled()
 
     mode_btns = [
-        add((20, 410, 120, 38), "MANUAL", lambda: set_mode("Manual"), init_mode == "Manual"),
-        add((150, 410, 120, 38), "AUTO", lambda: set_mode("Auto"), init_mode == "Auto"),
-        add((280, 410, 120, 38), "LINE", lambda: set_mode("Line"), init_mode == "Line"),
+        add((20, 410, 90, 38), "MANUAL", lambda: set_mode("Manual"), init_mode == "Manual"),
+        add((116, 410, 90, 38), "AUTO", lambda: set_mode("Auto"), init_mode == "Auto"),
+        add((212, 410, 90, 38), "LINE", lambda: set_mode("Line"), init_mode == "Line"),
+        add((308, 410, 92, 38), "FOLLOW", lambda: set_mode("Follow"), enabled=is_wifi),
     ]
+    add((20, 500, 185, 28), "HELLO", lambda: link.act("hello"), enabled=is_wifi)   # on the spot, in Manual
+    add((215, 500, 185, 28), "DANCE", lambda: link.act("dance"), enabled=is_wifi)
 
     def cycle_uv():
         nonlocal uv_state
@@ -1002,6 +1008,12 @@ def main():
                 elif ev.key == pygame.K_3: set_mode("Line")
                 elif ev.key == pygame.K_4:
                     if not is_bt: set_mode("IR")   # no BT command for this mode
+                elif ev.key == pygame.K_f:
+                    if not is_bt: set_mode("Follow")
+                elif ev.key == pygame.K_b:
+                    if not is_bt: link.act("hello")
+                elif ev.key == pygame.K_c:
+                    if not is_bt: link.act("dance")
                 elif ev.key == pygame.K_u: cycle_uv()
                 elif ev.key == pygame.K_m: link.music("Next")
                 elif ev.key == pygame.K_n and nora_mind and mind_state["capable"]:   # her MIND mode on / off
@@ -1114,7 +1126,7 @@ def main():
                 srv_mode = mode
             if srv_mode != mode:
                 mode = srv_mode
-                for b, name in zip(mode_btns, ("Manual", "Auto", "Line")):
+                for b, name in zip(mode_btns, ("Manual", "Auto", "Line", "Follow")):
                     b.active = (name == mode)
                 update_dpad_enabled()
 

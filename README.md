@@ -252,6 +252,8 @@ Every key, remote button and Bluetooth letter. The same list opens in its own wi
 | Two at once | blend (controller): W+A forward and sliding left, W+Q a curve (her /drive) |
 | | *driving with the wheels unlocked; in Auto / Line / IR the controller takes over (Manual)* |
 | 1 / 2 / 3 / 4 | Manual / Auto / Line / IR-remote mode |
+| F | FOLLOW mode: she keeps your hand 30 cm from her front sonar (controller; a button on her web page) |
+| B / C | HELLO / DANCE, on the spot, in Manual (controller; buttons on her web page) |
 | Space | play / pause music |
 | M | next track |
 | U | UV light: off, on, blink |

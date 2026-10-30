@@ -17,7 +17,7 @@ import time
 from controller_kit import FakeRobot
 
 MOTOR_PASSWORD = "1234"   # secrets.h's (a safety catch, not security)
-MODES = ["Manual", "Auto", "Line", "IR", "Mind"]
+MODES = ["Manual", "Auto", "Line", "IR", "Mind", "Follow"]
 STOP_CM = 15              # MANUAL_STOP_CM
 ROOM = (300.0, 240.0)     # cm, the pretend room; she starts in the middle facing +x
 DRIVE_TIMEOUT_S = 0.5     # DRIVE_MIX_TIMEOUT_MS
@@ -73,9 +73,12 @@ class FakeNora(FakeRobot):
         if self.mode == 1:   # AUTO: drive, turn away from walls
             d = self.distances()
             f, s, t = (0, 0, 1) if d["F"] < 30 else (1, 0, 0)
+        if self.mode == 5:   # FOLLOW: a hand 30 cm from her front sonar; nothing within 80 cm: stands
+            d = self.distances()["F"]
+            f, s, t = (0 if d > 80 or abs(d - 30) <= 4 else 1 if d > 30 else -1), 0, 0
         if self.locked:
             f = s = t = 0
-        if self.mode in (0, 3, 4):
+        if self.mode in (0, 3, 4, 5):
             d = self.distances()
             if f > 0 and d["F"] < STOP_CM: f = 0
             if f < 0 and d["B"] < STOP_CM: f = 0
@@ -116,7 +119,15 @@ class FakeNora(FakeRobot):
                     {"name": "IDA (pretend)", "type": "tracked", "ip": "-"}]}
             return 404, "not found"
         now = time.monotonic()
-        if path == "/sensors":
+        if path == "/act":
+            what = q.get("do")
+            if what not in ("hello", "dance"):
+                return 400, "hello|dance"
+            if self.mode != 0:
+                return 409, "only in MANUAL"
+            self.log("waves hello" if what == "hello" else "dances on the spot")
+            return 200, "OK"
+        if path in ("/sensors", "/status"):
             if q.get("ctl") == "1" and self.mind_host_seen:
                 self.mind_host_seen = now
             return 200, self.status()

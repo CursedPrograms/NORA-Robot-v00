@@ -8,6 +8,7 @@
 #include "secrets.example.h"
 #endif
 #include <WebServer.h>
+#include <ESPmDNS.h>
 #include <Preferences.h>
 #include "BluetoothSerial.h"
 #include <IRremote.hpp>
@@ -251,8 +252,16 @@ enum DriveMode { MODE_MANUAL,
                  MODE_AUTO,
                  MODE_LINE,
                  MODE_IR,
-                 MODE_MIND };   // her PC controller's LLM drives her (MIND MODE below)
+                 MODE_MIND,     // her PC controller's LLM drives her (MIND MODE below)
+                 MODE_FOLLOW };  // keeps a hand FOLLOW_CM from her front sonar (FOLLOW below)
 DriveMode driveMode = MODE_MANUAL;
+
+// HELLO and DANCE (/act?do=, as WHIP's): a wiggle on the spot, a step at a time from loop(), so her
+// web page and the IR keep working. Any stopMotors() ends it.
+enum ShowMove { SHOW_NONE, SHOW_HELLO, SHOW_DANCE };
+ShowMove showMove = SHOW_NONE;
+int showStep = 0;
+unsigned long showNextMs = 0;
 
 // =====================
 // MIND MODE (fleet TODO, section 10)
@@ -478,6 +487,10 @@ unsigned long lastUVBlink = 0;
 // changes one of those calls the matching notify*() right after, and it
 // travels over the same serial link as the M:*/V:* commands.
 void notifyMode() {
+  if (driveMode == MODE_FOLLOW) {   // the UNO's mode lines are 0-3: she says hello instead
+    Serial.println("BZ:TALK:0");
+    return;
+  }
   if (driveMode == MODE_MIND) {   // the UNO's mode lines are 0-3; "Mind mode." is phrase-book line 11
     Serial.println("SAY:11");
     return;
@@ -625,6 +638,17 @@ void setup() {
     setDriveMode(MODE_IR, "web");
     server.send(200, "text/plain", "OK");
   });
+  server.on("/modeFollow", []() {
+    setDriveMode(MODE_FOLLOW, "web");
+    server.send(200, "text/plain", "OK");
+  });
+  server.on("/act", []() {         // ?do=hello|dance, in MANUAL, as WHIP's
+    const String what = server.arg("do");
+    if (what != "hello" && what != "dance") { server.send(400, "text/plain", "hello|dance"); return; }
+    if (driveMode != MODE_MANUAL) { server.send(409, "text/plain", "only in MANUAL"); return; }
+    startShow(what == "hello" ? SHOW_HELLO : SHOW_DANCE);
+    server.send(200, "text/plain", "OK");
+  });
   server.on("/modeMind", []() {    // the MIND button (her page, her controller): only while her mind's controller is here
     if (!mindHostAlive()) { server.send(409, "text/plain", "no mind controller running"); return; }
     setDriveMode(MODE_MIND, "mind");
@@ -639,7 +663,8 @@ void setup() {
     else if (m == "auto") setDriveMode(MODE_AUTO, "web");
     else if (m == "line") setDriveMode(MODE_LINE, "web");
     else if (m == "ir") setDriveMode(MODE_IR, "web");
-    else { server.send(400, "text/plain", "manual|auto|line|ir|mind"); return; }
+    else if (m == "follow") setDriveMode(MODE_FOLLOW, "web");
+    else { server.send(400, "text/plain", "manual|auto|line|ir|follow|mind"); return; }
     server.send(200, "text/plain", "OK");
   });
   server.on("/unlock", []() {      // her mind's controller says it's here (her PIN = her motor password)
@@ -785,7 +810,8 @@ void setup() {
     server.send(200, "application/json", json);
   });
 
-  server.on("/sensors", []() {
+  // /status is the fleet's name for it (fleet talk's "ask", the same JSON)
+  auto sensorsJson = []() {
     if (server.arg("ctl") == "1" && mindHostSeen && server.client().remoteIP() == mindHostIP) mindHostSeen = millis();
     String json = "{\"mindHost\":" + String(mindHostAlive() ? 1 : 0) +
                   ",\"mindSteps\":" + String(mindMoveUntil ? (int)((mindMoveUntil - millis() + MIND_STEP_MS - 1) / MIND_STEP_MS) : 0) +
@@ -794,7 +820,9 @@ void setup() {
                   ",\"irn\":" + String(irFrames) + ",\"irp\":\"" + irLastProto + "\",\"ira\":" + String(irLastAddr) +
                   ",\"irc\":" + String(irLastCmd) + "}";
     server.send(200, "application/json", json);
-  });
+  };
+  server.on("/sensors", sensorsJson);
+  server.on("/status", sensorsJson);
 
   // ---- IDA link: drive IDA through the IR transmitter (works in every mode,
   // and isn't affected by NORA's motor lock -- they're IDA's motors) ----
@@ -861,6 +889,7 @@ void setup() {
   server.on("/keys", []() { server.send_P(200, "text/html", KEYS_HTML); });   // every key, button and letter (keys_page.h)
   server.on("/", handleRoot);
   server.begin();
+  if (MDNS.begin("nora")) MDNS.addService("http", "tcp", 5002);   // nora.local, as MILA and NIKA have
 
   setupFleetServer();
 }
@@ -870,7 +899,7 @@ void setup() {
 // =====================
 void loop() {
   // what she tells the other robots: driving herself, driven by you, or parked
-  bool selfDriving = driveMode == MODE_AUTO || driveMode == MODE_LINE || driveMode == MODE_MIND;
+  bool selfDriving = driveMode == MODE_AUTO || driveMode == MODE_LINE || driveMode == MODE_MIND || driveMode == MODE_FOLLOW;
   fleetNearSetState((motorLocked || (!motorsMoving && !selfDriving)) ? FLEET_PARKED
                     : selfDriving ? FLEET_DRIVING : FLEET_USER);
 
@@ -950,6 +979,8 @@ void loop() {
 
   if (driveMode == MODE_AUTO) AutonomousMode(front_cm, left_cm, back_cm, right_cm);
   else if (driveMode == MODE_LINE) LineFollowerMode(lf_l, lf_m, lf_r);
+  else if (driveMode == MODE_FOLLOW) FollowMode(front_cm);
+  else if (showMove != SHOW_NONE) showTick();
   else if (driveMode == MODE_MIND) {
     if (!mindHostAlive()) {
       mindMoveUntil = 0;
@@ -960,6 +991,59 @@ void loop() {
       stopMotors();
     }
   }
+}
+
+// =====================
+// FOLLOW (WHIP's follow-me): keep a hand 30 cm from her front sonar
+// =====================
+const float FOLLOW_CM = 30;
+const float FOLLOW_DEADBAND_CM = 4;   // close enough: stand
+const float FOLLOW_LOST_CM = 80;      // nothing nearer than this: nobody to follow, stand
+
+void FollowMode(float front) {
+  const float e = front - FOLLOW_CM;
+  const int dir = e > 0 ? DIR_FRONT : DIR_BACK;
+  if (front <= 0 || front > FOLLOW_LOST_CM || fabs(e) <= FOLLOW_DEADBAND_CM || blockedInDir(dir)) {
+    if (motorsMoving) stopMotors();
+    return;
+  }
+  const int scale = constrain(45 + (int)fabs(e) * 2, 45, 80);   // slower as the hand gets close
+  if (e > 0) moveForward(scale);
+  else moveBackward(scale);
+}
+
+// =====================
+// HELLO and DANCE
+// =====================
+const int SHOW_HELLO_STEPS = 6;   // a wiggle from side to side
+const int SHOW_DANCE_STEPS = 12;  // spin left, spin right, slide left, slide right
+const int SHOW_STEP_MS = 280;
+const int SHOW_SCALE = 65;
+
+void startShow(ShowMove m) {
+  stopMotors();
+  showMove = m;
+  showStep = 0;
+  showNextMs = 0;
+  Serial.print("BZ:TALK:");
+  Serial.println(m == SHOW_HELLO ? 0 : 2);   // "hello" / "happy", on her buzzer
+}
+
+void showTick() {
+  if ((long)(millis() - showNextMs) < 0) return;
+  const bool hello = showMove == SHOW_HELLO;
+  if (showStep >= (hello ? SHOW_HELLO_STEPS : SHOW_DANCE_STEPS)) {
+    stopMotors();
+    return;
+  }
+  showNextMs = millis() + SHOW_STEP_MS;
+  const int beat = hello ? (showStep % 2) + 2 : showStep % 4;
+  showStep++;
+  // the moves check the walls themselves: blocked, they stop her, and that ends the show
+  if (beat == 0) turnLeft(SHOW_SCALE);
+  else if (beat == 1) turnRight(SHOW_SCALE);
+  else if (beat == 2) strafeLeft(SHOW_SCALE);
+  else strafeRight(SHOW_SCALE);
 }
 
 // =====================
@@ -2157,6 +2241,9 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     <button class="mode-btn active" id="btnManual" onclick="setMode('Manual')">MANUAL</button>
     <button class="mode-btn"        id="btnAuto"   onclick="setMode('Auto')">AUTO</button>
     <button class="mode-btn"        id="btnLine"   onclick="setMode('Line')">LINE</button>
+    <button class="mode-btn"        id="btnFollow" onclick="setMode('Follow')" title="she keeps your hand 30 cm from her front sonar">FOLLOW</button>
+    <button class="mode-btn" onclick="cmd('/act?do=hello')" title="a wiggle and a beep, in MANUAL">HELLO</button>
+    <button class="mode-btn" onclick="cmd('/act?do=dance')" title="on the spot, in MANUAL">DANCE</button>
     <button class="mode-btn"        id="btnMind"   onclick="setMode('Mind')" style="display:none" title="the LLM on her PC controller drives her">MIND</button>
   </div>
 
@@ -2246,14 +2333,14 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
   function cmd(c) { fetch(c).catch(() => {}); }
 
-  const modeNames = ['Manual', 'Auto', 'Line', 'IR', 'Mind'];
+  const modeNames = ['Manual', 'Auto', 'Line', 'IR', 'Mind', 'Follow'];
 
   // Applies a mode to the UI only -- used both when we initiate a change
   // (setMode) and when we're just reflecting one that happened elsewhere
   // (IR remote, pygame controller) via the /sensors poll.
   function applyModeUI(mode) {
     currentMode = mode;
-    ['Manual','Auto','Line','Mind'].forEach(m => {
+    ['Manual','Auto','Line','Follow','Mind'].forEach(m => {
       const btn = document.getElementById('btn' + m);
       if (btn) btn.classList.toggle('active', m === mode);
     });
@@ -2569,7 +2656,7 @@ void handleRoot() {
 // (MANUAL_STOP_CM, 15 cm, is defined up with DRIVE MODE -- Line mode uses it too.)
 
 bool blockedInDir(int dir) {
-  if (driveMode != MODE_MANUAL && driveMode != MODE_IR && driveMode != MODE_MIND) return false;
+  if (driveMode != MODE_MANUAL && driveMode != MODE_IR && driveMode != MODE_MIND && driveMode != MODE_FOLLOW) return false;
   float d;
   switch (dir) {
     case DIR_FRONT: d = front_cm; break;
@@ -2666,6 +2753,7 @@ void driveMix(float f, float s, float t) {
 }
 
 void stopMotors() {
+  showMove = SHOW_NONE;
   motorsMoving = false;
   analogWrite(ENA1, 0);
   digitalWrite(M1_1, LOW);
