@@ -102,7 +102,7 @@ NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest 
 | **Component** | **Details** |
 |-----------|---------|
 | Microcontroller 0 | ESP32 (ACEBOTT QA007 Max controller board) |
-| Microcontroller 1 | Arduino UNO + SparkFun MP3 Player Shield (microSD card) |
+| Microcontroller 1 | Arduino UNO + VS1053 MP3 board with line in, microphone and headphone jack (microSD card) |
 | Chassis | Omnidirectional (mecanum) robot chassis |
 | Motor drivers | 2× L298N |
 | Motors | 4× 5 V DC motors |
@@ -110,7 +110,7 @@ NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest 
 | Distance | 4× HC-SR04 (front, back, left, right) |
 | Ground | 3-channel line tracking sensor |
 | Environment | AHT10 temperature / humidity (I2C), photoresistor (LDR) |
-| Sound | Sound sensor module (clap detection), buzzer, speaker on the MP3 shield |
+| Sound | Sound sensor module (clap detection), buzzer, speaker on the MP3 board |
 | Light | UV LED |
 | Remote | NEC IR receiver + remote, IR transmitter LED |
 | Controllers | Web page, Python controller (WiFi or Bluetooth), IR remote |
