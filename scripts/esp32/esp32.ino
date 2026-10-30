@@ -536,6 +536,8 @@ void setDriveMode(DriveMode m, const String& src) {
 // =====================
 // SETUP
 // =====================
+void handleRoot();   // after the page: Arduino's prototype maker can lose it in that much text
+
 void setup() {
   Serial.begin(9600);  // link to Arduino (sensors in, music commands out)
 
@@ -2020,209 +2022,155 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
   <link rel="icon" href="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAgACADASIAAhEBAxEB/8QAGQAAAgMBAAAAAAAAAAAAAAAABgcCAwUE/8QALRAAAgEDAgQEBQUAAAAAAAAAAQIDBAUREiEABjFRBxQiQQgTFWFxFjJCgdH/xAAXAQADAQAAAAAAAAAAAAAAAAABBAUG/8QAJxEAAQIFAwMFAQAAAAAAAAAAAQIDAAURITEEQbFhcdEGEhQigZH/2gAMAwEAAhEDEQA/ADTxKvMVrsVd5qoVIpIdMahtLF+uAcH3A9vfhKXDnm5XOppoqiud5KddMdPFJ8tYwV79W2/lk8b/AMSa3T6/RMwkNC1OyxKkgUE7ZLd9zjHb88AvIskNdzVBBURxy04wsrasFNXpJVlwRgnIx024xXpyUsnQIdUPcTU9tv7a+I2a9WnTLUvfFx+2837Q1Ul555a5TEs1bHd7RUxSRJPC5jnp2KahJhzkKDkdcnsD16fAu700slwpBNIlRUVJcwTzan9KHLKuThc44zufKS009BDarLUS09DbpoZKqITNJ5kyOA5lBA9QwMHJBB79L/Bc22111PRUKUoFVPV65BTFZmKhNKltwFGWAX8d+BNNOyJc+lCLquaCmKmpyMDAicXHFaptaz0485gb+J5o/wBVW4SLDqFICjtIw21HII6bHfv6vsDwr4Y5qysiaMyxyJIqa0zq3P7gdifbh5+JdfLTc9XO3LYrfXGqtQl1SRI7iNQxY5IJU6l2xucD78A/JFusnNMtfTtVRULJUP5OSXAgdDv8t9iR2B3xsD0zxYkDoYlrRULBINc56c/sJzB8uOLaG54iHJVyuF3jrbTe7tW1TOIYRhdZSFZNZJwNxkjc/wC8MXw2q0juUEdRPHUTx1UiJo04WNlCDQAMEHSG29u+ngO+iG1VFUsKxUt1tyK8MUkpxIyMNSajs2VLDB2P9Dgn8GoWq7xFXNSrEsKPDGiJpQIm4dvYyesL3Gls9eEZ8238Z52v1IrtunboRxB0byluNoAoR5j/2Q==">
   <style>
     :root {
-      /* same palette as KIDA's HUD (styles.css) — one look across the fleet */
-      --bg:          #07090f;
-      --panel:       #0a0e1a;
-      --border:      #1e3458;
-      --accent:      #6496e6;
-      --accent-rgb:  100,150,230;
-      --text:        #a0b8e8;
-      --text-dim:    #4a5f80;
-      --text-val:    #d7e6ff;
-      --green:       #46d764;
-      --green-rgb:   70,215,100;
-      --orange:      #ffbe50;
-      --orange-rgb:  255,190,80;
-      --red:         #c84040;
-      --red-rgb:     200,64,64;
-      --radius:      6px;
-      --font:        'Courier New', Courier, monospace;
+      /* colour_scheme.xml, as her Python controller */
+      --bg:      #090B11;
+      --panel:   #0F141E;
+      --border:  #1F273D;
+      --accent:  #F7BF28;
+      --accent-rgb: 247,191,40;
+      --text:    #F2EFE9;
+      --text-sec:#A8A394;
+      --text-dim:#6B6557;
+      --red:     #D34E41;
+      --red-rgb: 211,78,65;
+      --hover:   #251F0E;
+      --radius:  6px;
+      --font:    'Courier New', Courier, monospace;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: var(--bg); color: var(--text);
-      font-family: var(--font);
-      display: flex; flex-direction: column; align-items: center;
-      min-height: 100vh; padding: 20px; gap: 16px;
+    body { background: var(--bg); color: var(--text-sec); font-family: var(--font); font-size: 15px; min-height: 100vh; padding: 12px; }
+    button, .btn, .ida-btn, .mode-btn {
+      font-family: var(--font); font-weight: bold; color: var(--text-sec); background: var(--panel);
+      border: 2px solid var(--border); border-radius: var(--radius); cursor: pointer; user-select: none;
+      -webkit-tap-highlight-color: transparent; letter-spacing: 1px;
     }
-    h1 { font-size: 1.6rem; letter-spacing: 3px; color: var(--accent); }
-    h2 { font-size: 0.8rem; color: var(--text-dim); letter-spacing: 1px; }
+    #app { display: grid; grid-template-columns: minmax(0, 390px) 216px; gap: 18px; justify-content: center; align-items: start; }
+    #left { display: flex; flex-direction: column; gap: 10px; }
+    #right { background: var(--panel); border: 2px solid var(--border); border-radius: var(--radius);
+             padding: 12px 10px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 
-    #sensors { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; max-width: 340px; }
-    .sensor-box {
-      background: var(--panel); border: 2px solid var(--border); border-radius: var(--radius);
-      padding: 8px 12px; font-size: 0.85rem;
-      display: flex; flex-direction: column; gap: 4px;
-      transition: border-color 0.3s, background 0.3s;
-    }
-    .sensor-top { display: flex; justify-content: space-between; }
-    .sensor-box span { color: var(--accent); font-weight: bold; }
-    .sensor-box.warn  { border-color: var(--orange); }
-    .sensor-box.crit  { border-color: var(--red); background: rgba(var(--red-rgb), 0.12); }
+    #top { display: grid; grid-template-columns: 56px 1fr auto; gap: 10px; align-items: center; }
+    #title { text-align: center; }
+    h1 { font-size: 1.5rem; letter-spacing: 1px; color: var(--accent); }
+    #status { font-size: 0.8rem; color: var(--accent); }
+    .avatar { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; }
+    .keys-link { padding: 6px 10px; font-size: 0.75rem; text-decoration: none; }
+
+    #sensors { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .sensor-box { background: var(--panel); border: 2px solid var(--border); border-radius: var(--radius);
+                  padding: 9px 10px 8px; display: flex; flex-direction: column; gap: 8px; color: var(--text); }
+    .sensor-top { display: flex; gap: 8px; }
+    .sensor-box span { color: var(--text); }
+    .sensor-box.warn { border-color: var(--accent); }
+    .sensor-box.crit { border-color: var(--red); background: rgba(var(--red-rgb), 0.12); }
     .sensor-box.travel { border-color: var(--accent); background: rgba(var(--accent-rgb), 0.12); }
-    .dist-bar-bg { background: rgba(var(--accent-rgb), 0.1); border-radius: 3px; height: 4px; overflow: hidden; }
-    .dist-bar    { height: 4px; border-radius: 3px; background: var(--accent); transition: width 0.3s, background 0.3s; width: 0%; }
+    .dist-bar-bg { background: var(--border); border-radius: 3px; height: 4px; overflow: hidden; }
+    .dist-bar { height: 4px; border-radius: 3px; background: var(--accent); width: 0%; transition: width 0.3s; }
 
-    #lfRow { display: flex; gap: 8px; align-items: center; font-size: 0.8rem; color: var(--text-dim); }
-    .lf-dot {
-      width: 20px; height: 20px; border-radius: 50%;
-      background: var(--panel); border: 2px solid var(--border); transition: background 0.1s, border-color 0.1s;
-    }
+    #lfRow, #envRow { display: flex; gap: 8px; align-items: center; color: var(--text-dim); padding: 2px 2px; }
+    #lfRow span, #envRow span { color: var(--text-sec); }
+    .lf-dot { width: 20px; height: 20px; border-radius: 50%; background: var(--panel); border: 2px solid var(--border); }
     .lf-dot.on { background: var(--accent); border-color: var(--accent); }
 
-    #envRow { display: flex; gap: 6px; align-items: center; font-size: 0.8rem; color: var(--text-dim); }
-    #envRow span { color: var(--accent); font-weight: bold; }
-
-    #modeRow { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
-    .mode-btn {
-      padding: 10px 18px; border: 2px solid var(--border); border-radius: var(--radius);
-      font-size: 0.85rem; font-weight: bold; cursor: pointer;
-      background: var(--panel); color: var(--text-dim);
-    }
-    .mode-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(var(--accent-rgb), 0.12); }
-    .keys-link { text-decoration: none; }
-
-    #uvBtn {
-      padding: 9px 20px; border: 2px solid var(--border); border-radius: var(--radius);
-      font-size: 0.85rem; font-weight: bold; cursor: pointer;
-      background: var(--panel); color: var(--text-dim); transition: all 0.2s;
-    }
-    #uvBtn.on    { border-color: var(--orange); color: var(--orange); background: rgba(var(--orange-rgb), 0.12); }
-    #uvBtn.blink { border-color: var(--red);    color: var(--red);    background: rgba(var(--red-rgb), 0.12); }
-
-    #lockBtn {
-      padding: 9px 20px; border: 2px solid var(--border); border-radius: var(--radius);
-      font-size: 0.85rem; font-weight: bold; cursor: pointer;
-      background: var(--panel); color: var(--text-dim); transition: all 0.2s;
-    }
-    #lockBtn.locked   { border-color: var(--red);   color: var(--red);   background: rgba(var(--red-rgb), 0.12); }
-    #lockBtn.unlocked { border-color: var(--green); color: var(--green); background: rgba(var(--green-rgb), 0.12); }
-
-    /* Music player */
-    #musicPanel {
-      width: 100%; max-width: 340px;
-      background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-      padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
-    }
-    #musicTop { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--text-dim); }
-    #musicTrack { color: var(--accent); font-weight: bold; }
+    #musicTop { display: flex; gap: 22px; color: var(--accent); }
+    #musicTrack { color: var(--accent); }
     #musicState { color: var(--text-dim); }
-    #musicState.playing { color: var(--green); }
-    #musicState.paused  { color: var(--orange); }
-    #musicBtns { display: flex; gap: 8px; justify-content: center; }
-    .mu-btn {
-      flex: 1; padding: 10px 0; border: 2px solid var(--border); border-radius: var(--radius);
-      background: var(--panel); color: var(--text); font-size: 1rem; cursor: pointer;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .mu-btn:active { border-color: var(--accent); color: var(--accent); }
-    .mu-btn.stopBtn { color: var(--red); }
+    #musicState.playing { color: var(--text); }
+    #musicState.paused { color: var(--accent); }
+    #fleetBox { font-size: 0.92rem; color: var(--text); line-height: 1.35; min-height: 3.6em; }
+    #fleetBox b { color: var(--accent); font-weight: normal; }
 
-    #speedRow {
-      display: flex; align-items: center; gap: 10px;
-      width: 100%; max-width: 340px; font-size: 0.85rem; color: var(--text-dim);
-    }
+    #lockBtn { width: 100%; padding: 9px; font-size: 0.9rem; }
+    #lockBtn.locked { border-color: var(--accent); color: var(--accent); background: var(--hover); }
+    #lockBtn.unlocked { border-color: var(--border); color: var(--text-sec); }
+
+    #modeRow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .mode-btn { padding: 9px 0; font-size: 0.85rem; text-align: center; }
+    .mode-btn.active { border-color: var(--accent); color: var(--accent); background: var(--hover); }
+    #actRow { display: grid; grid-template-columns: 2fr repeat(4, 1fr); gap: 8px; }
+    #uvBtn { padding: 8px 0; font-size: 0.85rem; }
+    #uvBtn.on, #uvBtn.blink { border-color: var(--accent); color: var(--accent); background: var(--hover); }
+    .mu-btn { padding: 8px 0; font-size: 0.85rem; }
+    .mu-btn:active, .mode-btn:active { border-color: var(--accent); color: var(--accent); }
+    #showRow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    #showRow .mode-btn { padding: 5px 0; }
+
+    #speedRow { display: flex; align-items: center; gap: 10px; color: var(--text-dim); }
     #speedRow input[type=range] { flex: 1; accent-color: var(--accent); }
-    #speedVal { width: 36px; text-align: right; color: var(--accent); font-weight: bold; }
+    #speedVal { width: 40px; text-align: right; color: var(--accent); }
 
-    .dpad {
-      display: grid;
-      grid-template-columns: repeat(3, 80px);
-      grid-template-rows: repeat(3, 80px);
-      gap: 8px;
-    }
-    .btn {
-      background: var(--panel); border: 2px solid var(--border); border-radius: var(--radius);
-      color: var(--text-val); font-size: 1.5rem; cursor: pointer; user-select: none;
-      display: flex; align-items: center; justify-content: center;
-      -webkit-tap-highlight-color: transparent; transition: opacity 0.2s;
-      touch-action: none;
-    }
-    .btn.disabled { opacity: 0.25; pointer-events: none; }
-    .btn.pressed  { background: rgba(var(--accent-rgb), 0.25); border-color: var(--accent); }
-    .btn.stop-btn { background: rgba(var(--red-rgb), 0.15); border-color: var(--red); font-size: 0.8rem; font-weight: bold; color: var(--red); }
-    .btn.stop-btn.pressed { background: rgba(var(--red-rgb), 0.3); }
-    .fw    { grid-column: 2; grid-row: 1; }
-    .turnL { grid-column: 1; grid-row: 2; }
-    .left  { grid-column: 1; grid-row: 3; }
-    .stop  { grid-column: 2; grid-row: 2; }
-    .bw    { grid-column: 2; grid-row: 3; }
-    .turnR { grid-column: 3; grid-row: 2; }
-    .right { grid-column: 3; grid-row: 3; }
-    #status { font-size: 0.8rem; color: var(--text-dim); }
+    .dpad { display: grid; grid-template-columns: repeat(3, 80px); grid-template-rows: repeat(3, 80px); gap: 8px; justify-content: center; }
+    .btn { display: flex; align-items: center; justify-content: center; font-size: 1.05rem; touch-action: none; }
+    .btn.disabled { opacity: 0.45; pointer-events: none; }
+    .btn.pressed { background: var(--hover); border-color: var(--accent); color: var(--accent); }
+    .btn.stop-btn { font-size: 0.85rem; opacity: 1; }
+    .fw { grid-column: 2; grid-row: 1; } .turnL { grid-column: 1; grid-row: 2; } .left { grid-column: 1; grid-row: 3; }
+    .stop { grid-column: 2; grid-row: 2; } .bw { grid-column: 2; grid-row: 3; } .turnR { grid-column: 3; grid-row: 2; } .right { grid-column: 3; grid-row: 3; }
 
-    /* avatar */
-    .avatar { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 2px solid var(--accent);
-              box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.35); }
-
-    /* IDA link panel: drive IDA through NORA's IR transmitter */
-    #idaPanel { width: 100%; max-width: 360px; background: var(--panel); border: 1px solid var(--border);
-                border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
-    #idaTop { width: 100%; display: flex; align-items: center; gap: 12px; }
-    #idaPanel { --link: #D6935A; }
-    #idaTop .avatar { width: 52px; height: 52px; border-color: var(--link); box-shadow: 0 0 14px var(--link); }
-    #idaTop b { color: var(--link); letter-spacing: 3px; display: block; }
-    #linkRobots { display: flex; gap: 6px; width: 100%; }
-    #linkRobots button { flex: 1; padding: 6px 0; font: bold 0.75rem var(--font); letter-spacing: 1px; cursor: pointer;
-                         background: var(--bg); color: var(--text-dim); border: 1px solid var(--border); border-radius: var(--radius); }
-    #linkRobots button.active { color: var(--link); border-color: var(--link); }
-    #talkLog { width: 100%; font-size: 0.72rem; color: var(--text-dim); line-height: 1.5; min-height: 1.5em; }
-    #talkLog b { color: var(--link); font-weight: normal; }
-    #talkLog code { font-size: 0.65rem; word-break: break-all; color: var(--text-val); }
-    #idaTop small { color: var(--text-dim); font-size: 0.7rem; }
-    #idaStatus { margin-left: auto; font-size: 0.75rem; color: var(--text-dim); }
-    #idaModes { display: flex; gap: 8px; }
-    #idaModes .mode-btn { padding: 8px 12px; font-size: 0.75rem; }
-    .ida-pad { display: grid; grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(3, 64px); gap: 6px; }
-    .ida-btn {
-      background: var(--bg); border: 2px solid var(--border); border-radius: var(--radius);
-      color: var(--text-val); font-size: 1.3rem; cursor: pointer; user-select: none;
-      display: flex; align-items: center; justify-content: center;
-      -webkit-tap-highlight-color: transparent; touch-action: none;
-    }
-    .ida-btn.pressed { background: color-mix(in srgb, var(--link) 25%, transparent); border-color: var(--link); }
-    .ida-btn.istop { color: var(--red); border-color: var(--red); font-size: 0.75rem; font-weight: bold; }
+    /* the link panel: drive another robot through NORA's IR transmitter */
+    #right { --link: #D6935A; }
+    #linkPick { display: grid; grid-template-columns: 30px 1fr 30px; align-items: center; gap: 6px; width: 100%; }
+    #linkPick button { height: 38px; }
+    #linkPick .avatar { width: 98px; height: 98px; justify-self: center; }
+    #linkName { color: var(--link); font-size: 1.4rem; font-weight: bold; }
+    #idaTop { text-align: center; }
+    #idaTop small { display: block; color: var(--text-sec); font-size: 0.8rem; margin-top: 4px; }
+    #idaStatus { color: var(--text); font-size: 0.8rem; }
+    #idaModes { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; width: 100%; }
+    #idaModes .mode-btn { grid-column: span 3; font-size: 0.75rem; padding: 7px 0; }
+    #idaModes .third { grid-column: span 2; font-size: 0.68rem; letter-spacing: 0; }
+    .ida-pad { display: grid; grid-template-columns: repeat(3, 58px); grid-template-rows: repeat(3, 58px); gap: 6px; }
+    .ida-btn { display: flex; align-items: center; justify-content: center; font-size: 1rem; touch-action: none; background: var(--bg); }
+    .ida-btn.pressed { border-color: var(--link); color: var(--link); }
+    .ida-btn.istop { font-size: 0.8rem; }
     .ifw { grid-column: 2; grid-row: 1; } .ileft { grid-column: 1; grid-row: 2; } .istop { grid-column: 2; grid-row: 2; }
     .iright { grid-column: 3; grid-row: 2; } .ibw { grid-column: 2; grid-row: 3; }
+    #linkKeys { font-size: 0.8rem; text-align: center; line-height: 1.4; color: var(--text-sec); }
+    #topView { width: 100%; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+    #topView text { fill: var(--text-sec); font: 13px var(--font); }
+    #topView .axis { stroke: var(--border); stroke-width: 1; }
+    #topView .wall { stroke: var(--accent); stroke-width: 3; }
+    #talkLog { width: 100%; font-size: 0.72rem; color: var(--text-dim); line-height: 1.5; }
+    #talkLog b { color: var(--link); font-weight: normal; }
+    #talkLog code { font-size: 0.65rem; word-break: break-all; color: var(--text-sec); }
 
-    #calPanel {
-      width: 100%; max-width: 340px;
-      background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-      padding: 14px; display: flex; flex-direction: column; gap: 10px;
-    }
-    #calPanel summary { font-size: 0.85rem; color: var(--accent); cursor: pointer; user-select: none; font-weight: bold; }
-    .cal-row { display: flex; align-items: center; gap: 10px; font-size: 0.8rem; }
+    #calPanel { background: var(--panel); border: 2px solid var(--border); border-radius: var(--radius); padding: 10px; }
+    #calPanel summary { color: var(--accent); cursor: pointer; user-select: none; font-weight: bold; }
+    .cal-row { display: flex; align-items: center; gap: 10px; font-size: 0.8rem; margin-top: 8px; }
     .cal-row label { width: 24px; color: var(--text-dim); }
     .cal-row input[type=range] { flex: 1; accent-color: var(--accent); }
-    .cal-row span { width: 30px; text-align: right; color: var(--accent); font-weight: bold; }
-    #saveCalBtn {
-      align-self: flex-end; padding: 6px 16px; background: var(--green); border: none;
-      border-radius: var(--radius); color: var(--bg); font-size: 0.8rem; font-weight: bold; cursor: pointer;
-    }
+    .cal-row span { width: 30px; text-align: right; color: var(--accent); }
+    #saveCalBtn { display: block; margin: 10px 0 0 auto; padding: 6px 16px; border: 0; background: var(--accent); color: var(--bg); }
     #saveCalBtn.saved { background: var(--text-dim); }
+    #hint { text-align: center; color: var(--text-dim); font-size: 0.8rem; margin-top: 14px; }
+
+    @media (max-width: 630px) { #app { grid-template-columns: minmax(0, 390px); } }
   </style>
 </head>
 <body>
-  <img class="avatar" src="data:image/jpeg;base64,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" alt="NORA">
-  <h1>NORA</h1>
-  <h2>Nomadic Omnidirectional Reactive Automaton</h2>
-  <a class="mode-btn keys-link" href="/keys" target="nora_keys">KEYS</a>
+<div id="app">
+<div id="left">
+  <div id="top">
+    <img class="avatar" src="data:image/jpeg;base64,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" alt="NORA">
+    <div id="title"><h1>NORA</h1><div id="status">Idle</div></div>
+    <a class="mode-btn keys-link" href="/keys" target="nora_keys">KEYS</a>
+  </div>
 
   <div id="sensors">
     <div class="sensor-box" id="boxF">
-      <div class="sensor-top">Front <span id="sF">--</span> cm</div>
+      <div class="sensor-top">Front <span><span id="sF">--</span> cm</span></div>
       <div class="dist-bar-bg"><div class="dist-bar" id="barF"></div></div>
     </div>
     <div class="sensor-box" id="boxB">
-      <div class="sensor-top">Back <span id="sB">--</span> cm</div>
+      <div class="sensor-top">Back <span><span id="sB">--</span> cm</span></div>
       <div class="dist-bar-bg"><div class="dist-bar" id="barB"></div></div>
     </div>
     <div class="sensor-box" id="boxL">
-      <div class="sensor-top">Left <span id="sL">--</span> cm</div>
+      <div class="sensor-top">Left <span><span id="sL">--</span> cm</span></div>
       <div class="dist-bar-bg"><div class="dist-bar" id="barL"></div></div>
     </div>
     <div class="sensor-box" id="boxR">
-      <div class="sensor-top">Right <span id="sR">--</span> cm</div>
+      <div class="sensor-top">Right <span><span id="sR">--</span> cm</span></div>
       <div class="dist-bar-bg"><div class="dist-bar" id="barR"></div></div>
     </div>
   </div>
@@ -2232,8 +2180,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     <div class="lf-dot" id="lfL"></div>
     <div class="lf-dot" id="lfM"></div>
     <div class="lf-dot" id="lfR"></div>
-    &nbsp;&nbsp;Light: <span id="lightVal" style="color:var(--accent);font-weight:bold">--%</span>
-    &nbsp;&nbsp;<div class="lf-dot" id="sndDot" title="sound"></div>
+    &nbsp;&nbsp;Light: <span id="lightVal">--%</span>
+    &nbsp;&nbsp;<div class="lf-dot" id="sndDot" title="sound"></div> sound
   </div>
 
   <div id="envRow">
@@ -2241,78 +2189,50 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     &nbsp;&nbsp;Humidity: <span id="humVal">--</span>%
   </div>
 
-  <div id="modeRow">
-    <button class="mode-btn active" id="btnManual" onclick="setMode('Manual')">MANUAL</button>
-    <button class="mode-btn"        id="btnAuto"   onclick="setMode('Auto')">AUTO</button>
-    <button class="mode-btn"        id="btnLine"   onclick="setMode('Line')">LINE</button>
-    <button class="mode-btn"        id="btnFollow" onclick="setMode('Follow')" title="she keeps your hand 30 cm from her front sonar">FOLLOW</button>
-    <button class="mode-btn" onclick="cmd('/act?do=hello')" title="a wiggle and a beep, in MANUAL">HELLO</button>
-    <button class="mode-btn" onclick="cmd('/act?do=dance')" title="on the spot, in MANUAL">DANCE</button>
-    <button class="mode-btn"        id="btnMind"   onclick="setMode('Mind')" style="display:none" title="the LLM on her PC controller drives her">MIND</button>
+  <div id="musicTop">
+    <span>MUSIC</span>
+    <span id="musicTrack">track---</span>
+    <span id="musicState">stopped</span>
   </div>
+  <div id="fleetBox"></div>
 
-  <button id="uvBtn" onclick="cycleUV()">UV OFF</button>
   <button id="lockBtn" class="locked" onclick="toggleLock()">MOTOR LOCK: ON</button>
 
-  <div id="musicPanel">
-    <div id="musicTop">
-      <span>MUSIC</span>
-      <span><span id="musicTrack">track---</span> &nbsp; <span id="musicState">stopped</span></span>
-    </div>
-    <div id="musicBtns">
-      <button class="mu-btn" onclick="cmd('/muPrev')">&#9198;</button>
-      <button class="mu-btn" onclick="cmd('/muPlay')">&#9199;</button>
-      <button class="mu-btn" onclick="cmd('/muNext')">&#9197;</button>
-      <button class="mu-btn stopBtn" onclick="cmd('/muStop')">&#9209;</button>
-    </div>
+  <div id="modeRow">
+    <button class="mode-btn active" id="btnManual" onclick="setMode('Manual')">MANUAL</button>
+    <button class="mode-btn" id="btnAuto" onclick="setMode('Auto')">AUTO</button>
+    <button class="mode-btn" id="btnLine" onclick="setMode('Line')">LINE</button>
+    <button class="mode-btn" id="btnFollow" onclick="setMode('Follow')" title="she keeps your hand 30 cm from her front sonar">FOLLOW</button>
+    <button class="mode-btn" id="btnMind" onclick="setMode('Mind')" style="display:none" title="the LLM on her PC controller drives her">MIND</button>
+  </div>
+
+  <div id="actRow">
+    <button id="uvBtn" onclick="cycleUV()">UV OFF</button>
+    <button class="mu-btn" onclick="cmd('/muPrev')">|&lt;</button>
+    <button class="mu-btn" onclick="cmd('/muPlay')">&gt;||</button>
+    <button class="mu-btn" onclick="cmd('/muNext')">&gt;|</button>
+    <button class="mu-btn" onclick="cmd('/muStop')">[]</button>
+  </div>
+
+  <div id="showRow">
+    <button class="mode-btn" onclick="cmd('/act?do=hello')" title="a wiggle and a beep, in MANUAL">HELLO</button>
+    <button class="mode-btn" onclick="cmd('/act?do=dance')" title="on the spot, in MANUAL">DANCE</button>
+  </div>
+
+  <div class="dpad">
+    <div class="btn fw" data-cmd="/fw">^</div>
+    <div class="btn turnL" data-cmd="/turnL">@&lt;</div>
+    <div class="btn stop-btn stop" data-cmd="/stop">STOP</div>
+    <div class="btn bw" data-cmd="/bw">v</div>
+    <div class="btn left" data-cmd="/left">&lt;</div>
+    <div class="btn turnR" data-cmd="/turnR">&gt;@</div>
+    <div class="btn right" data-cmd="/right">&gt;</div>
   </div>
 
   <div id="speedRow">
     Speed
     <input id="speedSlider" type="range" min="0" max="100" value="100" oninput="setSpeed(this)">
     <span id="speedVal">100%</span>
-  </div>
-
-  <div class="dpad">
-    <div class="btn fw"    data-cmd="/fw">&#9650;</div>
-    <div class="btn turnL" data-cmd="/turnL">&#8634;</div>
-    <div class="btn stop-btn stop" data-cmd="/stop">STOP</div>
-    <div class="btn bw"    data-cmd="/bw">&#9660;</div>
-    <div class="btn left"  data-cmd="/left">&#9668;</div>
-    <div class="btn turnR" data-cmd="/turnR">&#8635;</div>
-    <div class="btn right" data-cmd="/right">&#9658;</div>
-  </div>
-  <div id="status">Idle</div>
-
-  <div id="idaPanel">
-    <div id="idaTop">
-      <img class="avatar" id="linkAvatar" src="/avatar/ida.jpg" alt="IDA">
-      <div><b id="linkName">IDA</b><small>over NORA's IR link &middot; keys I J K L</small></div>
-      <span id="idaStatus">ready</span>
-    </div>
-    <div id="linkRobots">
-      <button data-robot="ida" class="active">IDA</button>
-      <button data-robot="mila">MILA</button>
-      <button data-robot="whip">WHIP</button>
-      <button data-robot="kida">KIDA</button>
-      <button data-robot="nika">NIKA</button>
-    </div>
-    <div id="idaModes">
-      <button class="mode-btn" onclick="ida('manual')">MANUAL</button>
-      <button class="mode-btn" onclick="ida('auto')">AUTO</button>
-      <button class="mode-btn" onclick="ida('speed')">SPEED</button>
-      <button class="mode-btn" onclick="ida('unlock')" title="free the wheels of this robot">UNLOCK</button>
-      <button class="mode-btn" onclick="ida('lock')" title="lock the wheels of this robot">LOCK</button>
-      <button class="mode-btn" onclick="sayHi()">SAY HI</button>
-    </div>
-    <div class="ida-pad">
-      <div class="ida-btn ifw"    data-ida="fw">&#9650;</div>
-      <div class="ida-btn ileft"  data-ida="left">&#9668;</div>
-      <div class="ida-btn istop"  data-ida="stop">STOP</div>
-      <div class="ida-btn iright" data-ida="right">&#9658;</div>
-      <div class="ida-btn ibw"    data-ida="bw">&#9660;</div>
-    </div>
-    <div id="talkLog"></div>
   </div>
 
   <details id="calPanel">
@@ -2323,6 +2243,47 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     <div class="cal-row"><label>M4</label><input id="sl4" type="range" min="0" max="255" value="255" oninput="setCal(this,3,'v4')"><span id="v4">255</span></div>
     <button id="saveCalBtn" onclick="saveCal()">Save</button>
   </details>
+</div>
+
+<div id="right">
+  <div id="linkPick">
+    <button onclick="stepRobot(-1)" aria-label="previous robot">&lt;</button>
+    <img class="avatar" id="linkAvatar" src="/avatar/ida.jpg" alt="IDA">
+    <button onclick="stepRobot(1)" aria-label="next robot">&gt;</button>
+  </div>
+  <div id="idaTop">
+    <b id="linkName">IDA</b>
+    <small>via NORA's IR link</small>
+  </div>
+  <div id="idaStatus">ready</div>
+  <div id="idaModes">
+    <button class="mode-btn" onclick="ida('manual')">MANUAL</button>
+    <button class="mode-btn" onclick="ida('auto')">AUTO</button>
+    <button class="mode-btn third" onclick="ida('speed')">SPEED</button>
+    <button class="mode-btn third" onclick="ida('unlock')" title="free the wheels of this robot">UNLOCK</button>
+    <button class="mode-btn third" onclick="ida('lock')" title="lock the wheels of this robot">LOCK</button>
+  </div>
+  <div class="ida-pad">
+    <div class="ida-btn ifw" data-ida="fw">^</div>
+    <div class="ida-btn ileft" data-ida="left">&lt;</div>
+    <div class="ida-btn istop" data-ida="stop">STOP</div>
+    <div class="ida-btn iright" data-ida="right">&gt;</div>
+    <div class="ida-btn ibw" data-ida="bw">v</div>
+  </div>
+  <div id="linkKeys">I J K L drive<br>Tab robot &middot; <a href="#" onclick="sayHi();return false" style="color:inherit">say hi</a></div>
+  <svg id="topView" viewBox="0 0 200 220">
+    <text x="8" y="17">from above</text>
+    <line class="axis" x1="100" y1="24" x2="100" y2="216"/><line class="axis" x1="10" y1="120" x2="190" y2="120"/>
+    <line class="wall" id="wallF"/><line class="wall" id="wallB"/><line class="wall" id="wallL"/><line class="wall" id="wallR"/>
+    <rect x="72" y="92" width="10" height="16" rx="2" fill="#6B6557"/><rect x="118" y="92" width="10" height="16" rx="2" fill="#6B6557"/>
+    <rect x="72" y="132" width="10" height="16" rx="2" fill="#6B6557"/><rect x="118" y="132" width="10" height="16" rx="2" fill="#6B6557"/>
+    <rect x="82" y="96" width="36" height="48" rx="4" fill="#1F273D"/>
+    <polygon points="100,100 106,110 94,110" fill="#F7BF28"/>
+  </svg>
+  <div id="talkLog"></div>
+</div>
+</div>
+<div id="hint">WASD drive &middot; Q/E turn &middot; space play &middot; M next &middot; X speed &middot; U uv &middot; 1-4 mode</div>
 
 <script>
   let activeCmd = null, cmdInterval = null;
@@ -2489,11 +2450,13 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     av.src = '/avatar/' + r + '.jpg';
     av.alt = r.toUpperCase();
     document.getElementById('linkName').textContent = r.toUpperCase();
-    document.getElementById('idaPanel').style.setProperty('--link', LINK_COLOURS[r]);
-    document.querySelectorAll('#linkRobots button').forEach(b => b.classList.toggle('active', b.dataset.robot === r));
+    document.getElementById('right').style.setProperty('--link', LINK_COLOURS[r]);
     document.getElementById('idaStatus').textContent = 'ready';
   }
-  document.querySelectorAll('#linkRobots button').forEach(b => b.addEventListener('click', () => selectRobot(b.dataset.robot)));
+  const LINK_ROBOTS = Object.keys(LINK_COLOURS);
+  function stepRobot(by) {
+    selectRobot(LINK_ROBOTS[(LINK_ROBOTS.indexOf(linkRobot) + by + LINK_ROBOTS.length) % LINK_ROBOTS.length]);
+  }
 
   // ---- robots talking: the last few things NORA said, newest at the bottom ----
   function showTalk(t) {
@@ -2550,6 +2513,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
     // ---- always-allowed controls: mirror the physical remote, where
     // music/UV/mode switching work no matter which drive mode is active ----
+    if (k === 'tab') { e.preventDefault(); stepRobot(e.shiftKey ? -1 : 1); return; }
     if (k === ' ') { e.preventDefault(); cmd('/muPlay'); return; }
     if (k === 'm') { e.preventDefault(); cmd('/muNext'); return; }
     if (k === 'u') { e.preventDefault(); cycleUV();      return; }
@@ -2578,8 +2542,30 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
     const pct = value > 0 ? Math.min(value / 100 * 100, 100) : 0;
     bar.style.width = pct + '%';
-    bar.style.background = value > 0 && value < 15 ? '#c84040' : value > 0 && value < 28 ? '#ffbe50' : '#6496e6';
+    bar.style.background = value > 0 && value < 15 ? 'var(--red)' : 'var(--accent)';
   }
+
+  // The "from above" view: a line at each side, as far off as the sonar says (out to 80 cm)
+  function placeWall(id, x1, y1, x2, y2) {
+    const w = document.getElementById(id);
+    w.setAttribute('x1', x1); w.setAttribute('y1', y1); w.setAttribute('x2', x2); w.setAttribute('y2', y2);
+  }
+  function drawWalls(d) {
+    const out = v => 34 + Math.min(v > 0 ? v : 80, 80) * 0.65;
+    const F = 120 - out(d.F), B = 120 + out(d.B), L = 100 - out(d.L), R = 100 + out(d.R);
+    placeWall('wallF', 70, F, 130, F); placeWall('wallB', 70, B, 130, B);
+    placeWall('wallL', L, 90, L, 150); placeWall('wallR', R, 90, R, 150);
+  }
+
+  // Who's on her network, as the Python controller's FLEET lines
+  function pollFleet() {
+    fetch('/near').then(r => r.json()).then(d => {
+      const near = (d.robots || []).map(r => '&bull; ' + r.name + ' (' + r.rssi + ' dBm)');
+      document.getElementById('fleetBox').innerHTML = 'FLEET &nbsp;<b>authority: NORA (self)</b><br>' + near.join('<br>');
+    }).catch(() => {});
+  }
+  pollFleet();
+  setInterval(() => { if (!document.hidden) pollFleet(); }, 5000);
 
   const msLabels  = ['stopped', 'playing', 'paused'];
   const msClasses = ['', 'playing', 'paused'];
@@ -2590,6 +2576,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       updateSensor('boxB', 'barB', 'sB', d.B);
       updateSensor('boxL', 'barL', 'sL', d.L);
       updateSensor('boxR', 'barR', 'sR', d.R);
+      drawWalls(d);
 
       document.getElementById('lfL').classList.toggle('on', d.lfl === 1);
       document.getElementById('lfM').classList.toggle('on', d.lfm === 1);
