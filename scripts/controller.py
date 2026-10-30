@@ -1282,6 +1282,13 @@ def main():
                                 note=f"{key}: off", colours=(TEXT, DIM, WARN, ACCENT))
                 break
 
+        # her from above: the wheels as she's driving (the pad held here, else her /status), walls on all four sides
+        f, s, r = {"fw": (1, 0, 0), "bw": (-1, 0, 0), "left": (0, 1, 0), "right": (0, -1, 0)}.get(active_drive, (0, 0, 0))
+        if not (f or s or r) and t.get("moving"):
+            f = 1
+        kit.draw_top_view(screen, pygame.Rect(W + 12, H - 300, IDA_W - 24, 250), SETTINGS.theme, SETTINGS.get("custom"), f_sml, "mecanum",
+                          [f - s - r, f + s + r, f + s - r, f - s + r],
+                          [(0, t.get("F", -1)), (90, t.get("L", -1)), (180, t.get("B", -1)), (-90, t.get("R", -1))])
         pygame.display.flip()
         clock.tick(60)
 
