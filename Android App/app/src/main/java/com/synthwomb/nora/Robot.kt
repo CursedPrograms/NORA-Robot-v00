@@ -1,5 +1,6 @@
 package com.synthwomb.nora
 
+import org.json.JSONObject
 import java.util.Locale
 
 // What NORA takes: the same calls as RITA and her PC controller.
@@ -14,6 +15,16 @@ class Robot(private val http: Http) : RobotApi {
         http.get("/drive?f=${n(forward)}&s=${n(side)}&t=${n(turn)}")
     }
     override fun stop() { http.get("/stop") }
+    override fun tiles(s: JSONObject) = listOf(
+        "Front" to Tiles.cm(s.opt("F")),
+        "Back" to Tiles.cm(s.opt("B")),
+        "Left" to Tiles.cm(s.opt("L")),
+        "Right" to Tiles.cm(s.opt("R")),
+        "Light" to "${s.optInt("lt")}%",
+        "Temp" to "${s.optString("temp", "--")}\u00b0C",
+        "Humidity" to "${s.optString("hum", "--")}%",
+    )
+
     override val buttons = listOf(
         "MANUAL" to { http.get("/modeManual"); Unit },
         "AUTO" to { http.get("/modeAuto"); Unit },

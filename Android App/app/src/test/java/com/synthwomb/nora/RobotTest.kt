@@ -35,6 +35,18 @@ class RobotTest {
         assertEquals(listOf("/motorlockOff?pw=1234", "/modeManual", "/drive?f=1.00&s=0.00&t=0.00", "/stop"), http.calls)
     }
 
+    @Test fun tilesReadItsStatus() {
+        val tiles = Robot(Recorder()).tiles(org.json.JSONObject("""{"F":150.0,"B":-1,"L":12.5,"R":120,"lt":62,"temp":21.5,"hum":40.0}"""))
+        assertTrue(tiles.toString(), tiles.contains("Front" to "150 cm"))
+    }
+
+    @Test fun nearbyRobotsGetARoughDistance() {
+        val near = Tiles.near("""{"robots":[{"name":"WHIP","rssi":-50},{"name":"NORA","rssi":-75}]}""")
+        assertEquals(listOf("WHIP" to "~1.0 m", "NORA" to "~10 m"), near)
+        assertTrue(Tiles.near(null).isEmpty())
+        assertTrue(Tiles.near("not json").isEmpty())
+    }
+
     @Test fun everyButtonSendsSomething() {
         val http = Recorder()
         Robot(http).buttons.forEach { (_, act) -> act() }
