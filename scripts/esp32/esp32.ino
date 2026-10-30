@@ -2435,7 +2435,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
   // ---- IDA link: same hold-to-drive rhythm as NORA's pad (resend every
   // 150 ms while held; IDA stops on her own ~0.5 s after the last one) ----
   let idaActive = null, idaTimer = null, linkRobot = 'ida';
-  const LINK_COLOURS = { ida: '#D6935A', mila: '#1FD4DE', whip: '#D34859', kida: '#DF5BA3', nika: '#963CFF' };
+  const LINK_COLOURS = { ida: '#D6935A', mila: '#1FD4DE', whip: '#D34859', kida: '#DF5BA3', nika: '#D9703A' };
   function ida(c) {
     fetch('/link?r=' + linkRobot + '&c=' + c).catch(() => {});
     document.getElementById('idaStatus').textContent = c;

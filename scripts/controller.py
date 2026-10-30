@@ -333,7 +333,7 @@ IDA_COL = (232, 160, 90)   # IDA's avatar amber, so her panel reads as hers
 # accent colour (from its colour_scheme.xml) so the panel reads as theirs
 LINK_ROBOTS = [("ida", "IDA", IDA_COL), ("mila", "MILA", (31, 212, 222)),
                ("whip", "WHIP", (211, 72, 89)), ("kida", "KIDA", (223, 91, 163)),
-               ("nika", "NIKA", (150, 60, 255))]
+               ("nika", "NIKA", (217, 112, 58))]
 
 IMAGES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "images")
 
