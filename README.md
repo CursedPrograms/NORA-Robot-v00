@@ -111,6 +111,7 @@ NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest 
 | Ground | 3-channel line tracking sensor |
 | Environment | AHT10 temperature / humidity (I2C), photoresistor (LDR) |
 | Sound | Sound sensor module (clap detection), buzzer, speaker on the MP3 board |
+| FM radio (planned) | TEA5767 module, 76-108 MHz, 5 V: I2C at `0x60` on H13, H14 or H15, audio by aux cable into the VS1053 board's LINE IN |
 | Light | UV LED |
 | Remote | NEC IR receiver + remote, IR transmitter LED |
 | Controllers | Web page, Python controller (WiFi or Bluetooth), IR remote |
@@ -153,7 +154,8 @@ NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest 
 | **UV LED** | `GPIO 4` |
 | **IR receiver OUT** | `GPIO 32` (power it from **3.3 V**, not 5 V) |
 | **IR transmitter LED** | `GPIO 33` (sends the fleet IR link) |
-| **AHT10 SDA / SCL** | `GPIO 21` / `GPIO 22` |
+| **AHT10 SDA / SCL** | `GPIO 21` / `GPIO 22` (H13-H15 are this same I2C bus, with 5 V power) |
+| **TEA5767 FM radio (planned)** | I2C, `0x60`: H13, H14 or H15 |
 | **UNO link** | `RX0` / `TX0` (UART0, 9600 baud) |
 
 </details>
