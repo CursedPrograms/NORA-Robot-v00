@@ -18,7 +18,7 @@ import time
 from controller_kit import FakeRobot
 
 MOTOR_PASSWORD = "1234"   # secrets.h's (a safety catch, not security)
-MODES = ["Manual", "Auto", "Line", "IR", "Mind", "Follow"]
+MODES = ["Manual", "Auto", "Line", "IR", "Mind", "Follow", "Stay"]
 STOP_CM = 15              # MANUAL_STOP_CM
 ROOM = (300.0, 240.0)     # cm, the pretend room; she starts in the middle facing +x
 DRIVE_TIMEOUT_S = 0.5     # DRIVE_MIX_TIMEOUT_MS

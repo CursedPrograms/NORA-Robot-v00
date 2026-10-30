@@ -55,6 +55,8 @@
 
 ---
 
+**STAY CLOSE:** press STAY on [RITA](https://github.com/CursedPrograms/RITA), or STAY CLOSE on her page, and she keeps near RITA in your hand, stopping about a metre away. RITA's signal shows how far, not which way, so she tries a direction, keeps going if the signal gets stronger and turns if it doesn't. Her sensors still stop her for walls and the wheel lock still holds. She stops if RITA goes quiet. Tested in simulation only so far.
+
 ## Related Projects
 
 
