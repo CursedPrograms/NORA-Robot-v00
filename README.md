@@ -39,6 +39,10 @@
 
 ---
 
+<div align="center">
+  <img src="images/screenshots/controller.gif" alt="NORA's Python controller, driving a pretend NORA" width="420"/>
+</div>
+
 **Windows controller:** [`builds/NORA-Controller.exe`](builds/NORA-Controller.exe) shows NORA's own web page in a window, so it always matches the page. Source: `scripts/web_controller`.
 
 ## Related Projects
