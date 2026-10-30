@@ -163,3 +163,7 @@ cython_debug/
 
 # controller theme / custom colours (per PC)
 scripts/controller_settings.json
+
+# Controllers, built and kept
+!builds/
+!builds/*.exe
