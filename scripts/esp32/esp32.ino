@@ -810,10 +810,14 @@ void setup() {
     server.send(200, "application/json", json);
   });
 
-  // /status is the fleet's name for it (fleet talk's "ask", the same JSON)
+  // /status is the fleet's name for it (fleet talk's "ask", the same JSON). rev: her settings in one
+  // number (FNV-1a, as WHIP's), so a page or program sees at once that something changed elsewhere.
   auto sensorsJson = []() {
     if (server.arg("ctl") == "1" && mindHostSeen && server.client().remoteIP() == mindHostIP) mindHostSeen = millis();
-    String json = "{\"mindHost\":" + String(mindHostAlive() ? 1 : 0) +
+    uint32_t rev = 2166136261u;
+    const int settings[] = { (int)driveMode, speedPct, uvMode, motorLocked ? 1 : 0, cal[0], cal[1], cal[2], cal[3] };
+    for (int v : settings) { rev ^= (uint32_t)v; rev *= 16777619u; }
+    String json = "{\"rev\":" + String(rev) + ",\"mindHost\":" + String(mindHostAlive() ? 1 : 0) +
                   ",\"mindSteps\":" + String(mindMoveUntil ? (int)((mindMoveUntil - millis() + MIND_STEP_MS - 1) / MIND_STEP_MS) : 0) +
                   ",\"blocked\":" + String(mindBlocked ? 1 : 0) + ",\"F\":" + String(front_cm, 1) + ",\"L\":" + String(left_cm, 1) + ",\"B\":" + String(back_cm, 1) + ",\"R\":" + String(right_cm, 1) + ",\"lfl\":" + String(lf_l) + ",\"lfm\":" + String(lf_m) + ",\"lfr\":" + String(lf_r) + ",\"mode\":" + String((int)driveMode) + ",\"dir\":" + String(autoDir) + ",\"uv\":" + String(uvMode) + ",\"mt\":" + String(musicTrack) + ",\"ms\":" + String(musicState) + ",\"lt\":" + String(lightPct) + ",\"snd\":" + String(soundRecent ? 1 : 0) + ",\"lock\":" + String(motorLocked ? 1 : 0) + ",\"spd\":" + String(speedPct) + ",\"temp\":" + String(tempC, 1) + ",\"hum\":" + String(humidity, 1) + ",\"msrc\":\"" + modeSource + "\"" +
                   ",\"sd\":" + String(sdOk) + ",\"nt\":" + String(sdTracks) +

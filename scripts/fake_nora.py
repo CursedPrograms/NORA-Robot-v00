@@ -11,6 +11,7 @@ boots with her wheels locked, as she does. Every command she gets is printed.
 """
 
 import math
+import zlib
 import random
 import time
 
@@ -103,7 +104,8 @@ class FakeNora(FakeRobot):
         now = time.monotonic()
         d = self.distances()
         moving = any(self.motion) and not self.locked
-        return {"mindHost": int(now - self.mind_host_seen < 5), "blocked": int(self.blocked),
+        return {"rev": zlib.crc32(f"{self.mode},{self.speed},{self.uv},{self.locked}".encode()),
+                "mindHost": int(now - self.mind_host_seen < 5), "blocked": int(self.blocked),
                 "mindSteps": int(self.mind_until > now) and max(1, int((self.mind_until - now) / MIND_STEP_S + 0.99)),
                 **d, "lfl": 0, "lfm": 1, "lfr": 0, "mode": self.mode, "dir": 0, "uv": self.uv,
                 "mt": self.track, "ms": self.music, "lt": 62, "snd": 0, "lock": int(self.locked),
