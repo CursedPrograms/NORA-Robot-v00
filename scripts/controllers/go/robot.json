@@ -1,0 +1,93 @@
+{
+ "name": "NORA",
+ "port": 5002,
+ "host": "192.168.4.1",
+ "status": "/sensors",
+ "connect": [
+  "GET /motorlockOff?pw=1234",
+  "GET /modeManual"
+ ],
+ "stop": "GET /stop",
+ "keys": {
+  "w": "GET /fw",
+  "s": "GET /bw",
+  "a": "GET /left",
+  "d": "GET /right",
+  "q": "GET /turnL",
+  "e": "GET /turnR"
+ },
+ "buttons": [
+  [
+   "MANUAL",
+   "GET /modeManual"
+  ],
+  [
+   "AUTO",
+   "GET /modeAuto"
+  ],
+  [
+   "LINE",
+   "GET /modeLine"
+  ],
+  [
+   "FOLLOW",
+   "GET /modeFollow"
+  ],
+  [
+   "STAY CLOSE",
+   "GET /modeStay"
+  ],
+  [
+   "HELLO",
+   "GET /act?do=hello"
+  ],
+  [
+   "DANCE",
+   "GET /act?do=dance"
+  ],
+  [
+   "LOCK",
+   "GET /motorlockOn"
+  ]
+ ],
+ "tiles": [
+  [
+   "Front",
+   "F",
+   " cm"
+  ],
+  [
+   "Back",
+   "B",
+   " cm"
+  ],
+  [
+   "Left",
+   "L",
+   " cm"
+  ],
+  [
+   "Right",
+   "R",
+   " cm"
+  ],
+  [
+   "Light",
+   "lt",
+   "%"
+  ],
+  [
+   "Temp",
+   "temp",
+   " C"
+  ],
+  [
+   "Humidity",
+   "hum",
+   "%"
+  ]
+ ],
+ "background": "#090B11",
+ "text": "#F2EFE9",
+ "accent": "#F7BF28"
+}
