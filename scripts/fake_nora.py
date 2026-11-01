@@ -22,6 +22,7 @@ MODES = ["Manual", "Auto", "Line", "IR", "Mind", "Follow", "Stay"]
 STOP_CM = 15              # MANUAL_STOP_CM
 ROOM = (300.0, 240.0)     # cm, the pretend room; she starts in the middle facing +x
 DRIVE_TIMEOUT_S = 0.5     # DRIVE_MIX_TIMEOUT_MS
+WEB_DRIVE_TIMEOUT_S = 1.5   # /fw ... /turnR (WEB_DRIVE_TIMEOUT_MS)
 MIND_STEP_S = 0.4
 
 
@@ -34,7 +35,8 @@ class FakeNora(FakeRobot):
         self.track, self.music = 100, 0
         self.x, self.y, self.heading = ROOM[0] / 2, ROOM[1] / 2, 0.0
         self.motion = (0.0, 0.0, 0.0)      # forward, left, turn: what her wheels do now (-1..1)
-        self.drive_at = 0.0                # last /drive (it times out); /fw etc. hold until /stop
+        self.drive_at = 0.0                # the last drive: she lets go when it stops coming
+        self.drive_limit = DRIVE_TIMEOUT_S
         self.blended = False
         self.mind_until, self.mind_host_seen, self.blocked = 0.0, 0.0, False
         self.auto_turn = 0.0
@@ -64,7 +66,7 @@ class FakeNora(FakeRobot):
     def step(self, dt):
         now = time.monotonic()
         f, s, t = self.motion
-        if self.blended and now - self.drive_at > DRIVE_TIMEOUT_S:   # /drive went quiet: she lets go
+        if self.blended and now - self.drive_at > self.drive_limit:   # the drives went quiet: she lets go
             self._set_motion(0, 0, 0, "the controller went quiet: she stops")
             f = s = t = 0
         if self.mode == 4 and self.mind_until and now > self.mind_until:
@@ -143,13 +145,13 @@ class FakeNora(FakeRobot):
                 if self._blocked(f, s):
                     self.log(f"won't go {path[1:]}: a wall within {STOP_CM} cm")
                 else:
-                    self.blended = False
+                    self.blended, self.drive_at, self.drive_limit = True, now, WEB_DRIVE_TIMEOUT_S
                     self._set_motion(f, s, t)
             return 200, "OK"
         if path == "/drive":
             if self.mode == 0:
                 f, s, t = (max(-1.0, min(1.0, float(q.get(k, 0) or 0))) for k in "fst")
-                self.blended, self.drive_at = True, now
+                self.blended, self.drive_at, self.drive_limit = True, now, DRIVE_TIMEOUT_S
                 self._set_motion(f, s, t)
             return 200, "OK"
         if path == "/stop":

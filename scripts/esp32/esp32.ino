@@ -245,6 +245,10 @@ unsigned long irLastDriveMs = 0;
 // stops by herself DRIVE_MIX_TIMEOUT_MS after the last one (a closed controller can't leave her running).
 #define DRIVE_MIX_TIMEOUT_MS 500
 unsigned long driveMixMs = 0;
+// The same for /fw ... /turnR, which her page and the controllers resend every 150-200 ms: a page closed or a
+// program gone mid-drive would otherwise leave her running. Longer: her one-client server can stall a resend.
+#define WEB_DRIVE_TIMEOUT_MS 1500
+unsigned long webDriveMs = 0;
 
 // =====================
 // DRIVE MODE
@@ -590,27 +594,27 @@ void setup() {
 
   // Manual movement
   server.on("/fw", []() {
-    if (driveMode == MODE_MANUAL) moveForward();
+    if (driveMode == MODE_MANUAL) { moveForward(); webDriveMs = millis(); }
     server.send(200, "text/plain", "OK");
   });
   server.on("/bw", []() {
-    if (driveMode == MODE_MANUAL) moveBackward();
+    if (driveMode == MODE_MANUAL) { moveBackward(); webDriveMs = millis(); }
     server.send(200, "text/plain", "OK");
   });
   server.on("/left", []() {
-    if (driveMode == MODE_MANUAL) strafeLeft();
+    if (driveMode == MODE_MANUAL) { strafeLeft(); webDriveMs = millis(); }
     server.send(200, "text/plain", "OK");
   });
   server.on("/right", []() {
-    if (driveMode == MODE_MANUAL) strafeRight();
+    if (driveMode == MODE_MANUAL) { strafeRight(); webDriveMs = millis(); }
     server.send(200, "text/plain", "OK");
   });
   server.on("/turnL", []() {
-    if (driveMode == MODE_MANUAL) turnLeft();
+    if (driveMode == MODE_MANUAL) { turnLeft(); webDriveMs = millis(); }
     server.send(200, "text/plain", "OK");
   });
   server.on("/turnR", []() {
-    if (driveMode == MODE_MANUAL) turnRight();
+    if (driveMode == MODE_MANUAL) { turnRight(); webDriveMs = millis(); }
     server.send(200, "text/plain", "OK");
   });
   server.on("/stop", []() {
@@ -956,6 +960,10 @@ void loop() {
   }
   if (driveMixMs != 0 && now - driveMixMs > DRIVE_MIX_TIMEOUT_MS) {   // /drive went quiet: let go
     driveMixMs = 0;
+    if (driveMode == MODE_MANUAL) stopMotors();
+  }
+  if (webDriveMs != 0 && now - webDriveMs > WEB_DRIVE_TIMEOUT_MS) {   // /fw ... went quiet: let go
+    webDriveMs = 0;
     if (driveMode == MODE_MANUAL) stopMotors();
   }
 
@@ -2348,9 +2356,15 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     applyModeUI(mode);
   }
 
+  // /stop only works in Manual: anywhere else she's driving herself, so out of that first
+  function stopNow() {
+    if (currentMode !== 'Manual') setMode('Manual');
+    cmd('/stop');
+  }
+
   function updateDpadEnabled() {
     const enabled = currentMode === 'Manual' && !motorLocked;
-    document.querySelectorAll('.btn').forEach(b => b.classList.toggle('disabled', !enabled));
+    document.querySelectorAll('.btn:not(.stop-btn)').forEach(b => b.classList.toggle('disabled', !enabled));   // STOP always works
   }
 
   function applyLock() {
@@ -2453,10 +2467,10 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
   document.querySelectorAll('.btn').forEach(btn => {
     const c = btn.dataset.cmd;
-    btn.addEventListener('mousedown',  e => { e.preventDefault(); c === '/stop' ? cmd('/stop') : startCmd(c); btn.classList.add('pressed'); });
+    btn.addEventListener('mousedown',  e => { e.preventDefault(); c === '/stop' ? stopNow() : startCmd(c); btn.classList.add('pressed'); });
     btn.addEventListener('mouseup',    e => { e.preventDefault(); if (c !== '/stop') stopCmd(); btn.classList.remove('pressed'); });
     btn.addEventListener('mouseleave', e => { if (activeCmd === c && c !== '/stop') stopCmd(); btn.classList.remove('pressed'); });
-    btn.addEventListener('touchstart', e => { e.preventDefault(); c === '/stop' ? cmd('/stop') : startCmd(c); btn.classList.add('pressed'); }, { passive: false });
+    btn.addEventListener('touchstart', e => { e.preventDefault(); c === '/stop' ? stopNow() : startCmd(c); btn.classList.add('pressed'); }, { passive: false });
     btn.addEventListener('touchend',   e => { e.preventDefault(); if (c !== '/stop') stopCmd(); btn.classList.remove('pressed'); });
   });
 
@@ -2775,6 +2789,7 @@ void driveMix(float f, float s, float t) {
 }
 
 void stopMotors() {
+  webDriveMs = 0;
   showMove = SHOW_NONE;
   motorsMoving = false;
   analogWrite(ENA1, 0);

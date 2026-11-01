@@ -7,7 +7,7 @@
   "GET /motorlockOff?pw=1234",
   "GET /modeManual"
  ],
- "stop": "GET /stop",
+ "stop": "GET /modeManual",
  "keys": {
   "w": "GET /fw",
   "s": "GET /bw",
