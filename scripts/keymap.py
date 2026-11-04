@@ -66,20 +66,12 @@ KEYMAP = [
         ("Vol+ / Vol- / Mute", "volume"),
         ("", "the wheel lock blocks driving here too: 5 frees the wheels"),
     ]),
-    ("Bluetooth serial (the controller's BT link)", [
-        ("F / B / L / R", "forward / back / strafe left / right"),
-        ("Q / E", "turn left / right"),
-        ("S", "stop"),
-        ("1 / 2 / 3", "Manual / Auto / Line mode"),
-        ("U", "UV light: off, on, blink"),
-        ("K", "lock the wheels"),
-        ("V1234", "unlock the wheels (V, then her PIN)"),
-        ("M / N / P / X", "music: play-pause / next / previous / stop"),
-        ("+ / -", "speed up / down"),
-        ("?", "status"),
-        ("I or T, then a letter", "drive IDA (I) or another robot (T) through the IR link"),
-        ("... then U / K", "unlock / lock that robot's wheels"),
-        ("H, then name:caps", "register a fleet member (DREAM over Bluetooth)"),
+    ("Bluetooth (the fleet's one protocol, fleet_bt: the same as every robot)", [
+        ("Pair with \"NORA\"", "then the controller's connection screen: Bluetooth, her COM port (or --bt COM7)"),
+        ("Everything", "every web command works over it the same: driving, modes, speed, UV, music, the locks, the IR link"),
+        (">GET /path", "one request per line, exactly what WiFi asks; she answers <code> <length>, then the body"),
+        (">GET :5000/robots", "her fleet list (another of her ports): RIFT registers over Bluetooth like this"),
+        ("", "her wheel lock, her PIN and her stops hold over Bluetooth just as over WiFi"),
     ]),
 ]
 

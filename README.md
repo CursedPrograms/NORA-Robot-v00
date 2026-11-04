@@ -337,23 +337,15 @@ Every key, remote button and Bluetooth letter. The same list opens in its own wi
 | Vol+ / Vol- / Mute | volume |
 | | *the wheel lock blocks driving here too: 5 frees the wheels* |
 
-**Bluetooth serial (the controller's BT link)**
+**Bluetooth (the fleet's one protocol, fleet_bt: the same as every robot)**
 
 | Key | Does |
 |---|---|
-| F / B / L / R | forward / back / strafe left / right |
-| Q / E | turn left / right |
-| S | stop |
-| 1 / 2 / 3 | Manual / Auto / Line mode |
-| U | UV light: off, on, blink |
-| K | lock the wheels |
-| V1234 | unlock the wheels (V, then her PIN) |
-| M / N / P / X | music: play-pause / next / previous / stop |
-| + / - | speed up / down |
-| ? | status |
-| I or T, then a letter | drive IDA (I) or another robot (T) through the IR link |
-| ... then U / K | unlock / lock that robot's wheels |
-| H, then name:caps | register a fleet member (DREAM over Bluetooth) |
+| Pair with "NORA" | then the controller's connection screen: Bluetooth, her COM port (or --bt COM7) |
+| Everything | every web command works over it the same: driving, modes, speed, UV, music, the locks, the IR link |
+| >GET /path | one request per line, exactly what WiFi asks; she answers <code> <length>, then the body |
+| >GET :5000/robots | her fleet list (another of her ports): RIFT registers over Bluetooth like this |
+| | *her wheel lock, her PIN and her stops hold over Bluetooth just as over WiFi* |
 
 <!-- keymap:end -->
 
@@ -507,6 +499,16 @@ NORA hears the others over **ESP-NOW** (WHIP, MILA) and **Bluetooth LE** (WHIP a
 </div>
 
 ---
+
+## Bluetooth
+
+The fleet has **one Bluetooth protocol** (`fleet_bt`, master copy in [RIFT](https://github.com/CursedPrograms/RIFT)'s `Fleet/`): a controller sends exactly the web request it would send over WiFi, one per line (`>GET /status`, `>POST /command<TAB>{...}`), and the robot asks its own web server and answers `<code> <length>` and the body. So every command works the same both ways, including new ones, and so does every rule: the PIN, the locks, the robot's own stops.
+
+- **NORA** shows up as **NORA** (`scripts/esp32/fleet_bt.h`). Her old one-letter commands are gone: every web command works over Bluetooth now, including blended driving, the speed slider and the fleet panel. `>GET :5000/robots` reaches her fleet list (RIFT registers there over Bluetooth).
+- **Her controller**: the connection screen's Bluetooth, or `python scripts/controller.py --bt COM7` (or her address): `BtLink` is her WiFi link over Bluetooth.
+- Her `/status` has `distance_cm` (her front), `wifi_rssi` and `bluetooth`.
+
+**STAY CLOSE goes round things**: with her four sonars and mecanum wheels she slows near things, slides round them toward the side with more room (still facing RITA's signal), and backs out of a corner (`fleet_stay.h`).
 
 <!-- DREAM-ECOSYSTEM:START -->
 ## The DREAM Robotics ecosystem

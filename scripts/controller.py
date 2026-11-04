@@ -64,11 +64,12 @@ import mind_panel    # scripts/mind_panel.py: a mind's strip in the window
 # ----------------------------------------------------------------------------
 
 class WifiLink:
-    """Talks to the ESP32 web server. Full telemetry via /sensors."""
+    """Talks to the ESP32 web server. Full telemetry via /sensors. `http`: what carries the requests
+    (requests itself over WiFi; a fleet_bt.BtSession over Bluetooth: BtLink)."""
 
-    def __init__(self, host, port):
+    def __init__(self, host, port, http=None):
         import requests
-        self.requests = requests
+        self.requests = http or requests
         self.base = f"http://{host}:{port}"
         self.fleet_base = f"http://{host}:5000"   # NORA's fleet registry — fixed port
         self.ok = False
@@ -193,119 +194,15 @@ class WifiLink:
         self._pool.submit(self._get, f"/link?r={robot}&c={c}")
 
 
-class BtLink:
-    """Talks over a Bluetooth serial port using the single-char protocol."""
-
-    DRIVE = {"fw": "F", "bw": "B", "left": "L", "right": "R",
-             "turnL": "Q", "turnR": "E"}
+class BtLink(WifiLink):
+    """Her web API over Bluetooth serial: the fleet's one Bluetooth protocol (fleet_bt.py). The same
+    requests as WiFi, so everything works the same: blended driving, speed, the fleet panel, MIND.
+    `port`: the COM port her pairing made (Windows), /dev/rfcommN (Linux), or her Bluetooth address."""
 
     def __init__(self, port):
-        import serial   # only needed for Bluetooth; pip install pyserial
-        self.ser = serial.Serial(port, 115200, timeout=0.2)
-        self.ok = True
-        self.data = {}
-        self._lock = threading.Lock()
-        # guards the serial port itself: the poll thread and drive commands
-        # from the main thread both read/write it, and pyserial doesn't
-        # promise that's safe without serializing the calls
-        self._io_lock = threading.Lock()
-        threading.Thread(target=self._poll, daemon=True).start()
-
-    def _send(self, ch):
-        try:
-            with self._io_lock:
-                self.ser.write(ch.encode())
-            self.ok = True
-        except Exception:
-            self.ok = False
-
-    def _poll(self):
-        """Ask for status with '?' and parse the reply line."""
-        buf = ""
-        while True:
-            self._send("?")
-            time.sleep(0.1)
-            try:
-                with self._io_lock:
-                    chunk = self.ser.read(256)
-                buf += chunk.decode(errors="ignore")
-            except Exception:
-                self.ok = False
-                time.sleep(1)
-                continue
-            while "\n" in buf:
-                line, buf = buf.split("\n", 1)
-                self._parse(line.strip())
-            time.sleep(0.6)
-
-    def _parse(self, line):
-        # "F:12.0 L:33.0 B:-1.0 R:8.5 mode:1 dir:0 lf:010 track:101 state:1 light:45% sound:no"
-        if not line.startswith("F:"):
-            return
-        d = {}
-        for tok in line.split():
-            if ":" not in tok:
-                continue
-            k, v = tok.split(":", 1)
-            if k == "lf":
-                if len(v) == 3 and v.isdigit():
-                    d["lfl"], d["lfm"], d["lfr"] = int(v[0]), int(v[1]), int(v[2])
-                continue
-            if k == "sound":
-                d["snd"] = 1 if v == "yes" else 0
-                continue
-            v = v.rstrip("%")
-            try:
-                d[{"F": "F", "L": "L", "B": "B", "R": "R", "mode": "mode", "dir": "dir",
-                   "track": "mt", "state": "ms", "light": "lt", "lock": "lock"}[k]] = float(v)
-            except (KeyError, ValueError):
-                pass
-        with self._lock:
-            self.data.update(d)
-
-    def telemetry(self):
-        with self._lock:
-            return dict(self.data)
-
-    def drive(self, action):
-        self._send(self.DRIVE[action])
-
-    def drive_mix(self, f, s, t):   # the single-letter protocol has no blended drive
-        return False
-
-    def stop(self):
-        self._send("S")
-
-    def mode(self, m):
-        self._send({"Manual": "1", "Auto": "2", "Line": "3"}[m])
-
-    def uv(self, state):
-        self._send("U")     # BT protocol cycles; state arg unused
-
-    def music(self, cmd):
-        self._send({"Play": "M", "Next": "N", "Prev": "P", "Stop": "X"}[cmd])
-
-    def speed(self, pct):
-        pass  # BT protocol has no "set absolute speed" command; slider is WiFi-only
-
-    def nudge_speed(self, up):
-        """BT's only speed control: a single '+'/'-' step handled onboard."""
-        self._send("+" if up else "-")
-
-    def motorlock(self, locked, pw=None):
-        self._send("K" if locked else "V" + (pw or ""))
-
-    IDA = {"fw": "F", "bw": "B", "left": "L", "right": "R",
-           "stop": "S", "auto": "O", "manual": "W", "speed": "X",
-           "unlock": "U", "lock": "K"}
-
-    def ida(self, c):          # IDA link over BT: 'I' + one letter
-        self._send("I" + self.IDA[c])
-
-    ROBOT = {"ida": "I", "mila": "M", "whip": "W", "kida": "K", "nika": "N"}
-
-    def link(self, robot, c):  # fleet link over BT: 'T' + robot letter + command letter
-        self._send("T" + self.ROBOT[robot] + self.IDA[c])
+        import fleet_bt
+        self.bt = fleet_bt.BtSession(port, home_port=5002)   # :5000 (her fleet list) goes as ":5000/..."
+        super().__init__("nora", 5002, http=self.bt)
 
 
 # ----------------------------------------------------------------------------
@@ -948,7 +845,7 @@ def main():
     slider = pygame.Rect(70, 515, W - 140, 8)
     dragging_slider = False
 
-    is_bt = isinstance(link, BtLink)   # BT has no absolute-speed command; slider is WiFi-only
+    is_bt = False   # Bluetooth carries /setspeed like WiFi now (fleet_bt): the slider works both ways
 
     def set_speed_from_mouse(mx):
         nonlocal speed

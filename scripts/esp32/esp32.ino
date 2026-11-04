@@ -10,7 +10,7 @@
 #include <WebServer.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
-#include "BluetoothSerial.h"
+#include "fleet_bt.h"   // the fleet's one Bluetooth protocol: her whole web API over Bluetooth serial (RIFT/Fleet/esp32)
 #include <IRremote.hpp>
 #include "avatars.h"
 #include "keys_page.h"   // the /keys page: generated from scripts/keymap.py
@@ -37,7 +37,6 @@
 //     HTTP /register the fleet registry below takes over WiFi — lets RIFT
 //     or DREAM heartbeat over Bluetooth instead when their dashboards are
 //     switched to that transport). Replies "OK" or "ERR".
-BluetoothSerial SerialBT;
 
 // =====================
 // WIFI
@@ -327,8 +326,6 @@ String jsonEscape(const String& in) {
 // checked here in firmware so every client (web, pygame, raw BT/HTTP)
 // is held to the same gate instead of trusting each app to enforce it.
 bool motorLocked = true;
-bool btAwaitingPw = false;
-String btPwBuffer = "";
 
 // === RADAR (passive imposter spotter) ===
 // NORA listens to the WiFi around her and flags anything that is not one of
@@ -395,10 +392,6 @@ void radarLoop() {
 // Fleet heartbeat over Bluetooth ('H' below) — same buffer-until-newline
 // shape as the password flow above, just terminated by '\n' instead of a
 // fixed length since the payload ("name:cap1,cap2") is variable-length.
-bool btAwaitingFleet = false;
-bool btAwaitingIda = false;  // 'I' prefix: the next char is an IDA link command
-uint16_t btLinkAddress = 0;  // 'T' prefix: 1 = waiting for the robot letter, else that robot's address
-String btFleetBuffer = "";
 
 // =====================
 // AUTONOMOUS STATE
@@ -560,7 +553,6 @@ void setup() {
 
   randomSeed(esp_random());  // the conversations shouldn't repeat every boot
   setupWiFi();   // RIFT's network, or her own (ESP-NOW rides on whichever)
-  SerialBT.begin("NORA");  // Bluetooth device name shown when pairing
   fleetNearBleBegin("NORA");  // BLE beacon + gentle scan, alongside the classic Bluetooth above
   IrReceiver.begin(IR_RECEIVE_PIN, DISABLE_LED_FEEDBACK);
   // The transmitter makes its carrier with an LEDC channel and the receiver
@@ -838,7 +830,10 @@ void setup() {
                   ",\"blocked\":" + String(mindBlocked ? 1 : 0) + ",\"F\":" + String(front_cm, 1) + ",\"L\":" + String(left_cm, 1) + ",\"B\":" + String(back_cm, 1) + ",\"R\":" + String(right_cm, 1) + ",\"lfl\":" + String(lf_l) + ",\"lfm\":" + String(lf_m) + ",\"lfr\":" + String(lf_r) + ",\"mode\":" + String((int)driveMode) + ",\"dir\":" + String(autoDir) + ",\"uv\":" + String(uvMode) + ",\"mt\":" + String(musicTrack) + ",\"ms\":" + String(musicState) + ",\"lt\":" + String(lightPct) + ",\"snd\":" + String(soundRecent ? 1 : 0) + ",\"lock\":" + String(motorLocked ? 1 : 0) + ",\"moving\":" + String(motorsMoving ? 1 : 0) + ",\"spd\":" + String(speedPct) + ",\"temp\":" + String(tempC, 1) + ",\"hum\":" + String(humidity, 1) + ",\"msrc\":\"" + modeSource + "\"" +
                   ",\"sd\":" + String(sdOk) + ",\"nt\":" + String(sdTracks) +
                   ",\"irn\":" + String(irFrames) + ",\"irp\":\"" + irLastProto + "\",\"ira\":" + String(irLastAddr) +
-                  ",\"irc\":" + String(irLastCmd) + "}";
+                  ",\"irc\":" + String(irLastCmd) +
+                  ",\"distance_cm\":" + String(front_cm, 1) +                                       // her front, for RITA's STATS
+                  ",\"wifi_rssi\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) +   // her signal (0: she hosts)
+                  ",\"bluetooth\":" + String(fleetBtConnected() ? 1 : 0) + "}";
     server.send(200, "application/json", json);
   };
   server.on("/sensors", sensorsJson);
@@ -909,6 +904,7 @@ void setup() {
   server.on("/keys", []() { server.send_P(200, "text/html", KEYS_HTML); });   // every key, button and letter (keys_page.h)
   server.on("/", handleRoot);
   server.begin();
+  fleetBtBegin("NORA", 5002);   // Bluetooth "NORA": every web command over it too; ":5000/..." reaches her fleet list
   if (MDNS.begin("nora")) MDNS.addService("http", "tcp", 5002);   // nora.local, as MILA and NIKA have
 
   setupFleetServer();
@@ -940,7 +936,6 @@ void loop() {
   server.handleClient();
   fleetServer.handleClient();
   fleetNetworkLoop();
-  handleBluetooth();
   handleIR();
   readSerialSensors();
 
@@ -1004,7 +999,7 @@ void loop() {
   if (driveMode == MODE_AUTO) AutonomousMode(front_cm, left_cm, back_cm, right_cm);
   else if (driveMode == MODE_LINE) LineFollowerMode(lf_l, lf_m, lf_r);
   else if (driveMode == MODE_FOLLOW) FollowMode(front_cm);
-  else if (driveMode == MODE_STAY) StayMode(front_cm);
+  else if (driveMode == MODE_STAY) StayMode(front_cm, left_cm, right_cm);
   else if (showMove != SHOW_NONE) showTick();
   else if (driveMode == MODE_MIND) {
     if (!mindHostAlive()) {
@@ -1040,18 +1035,23 @@ void FollowMode(float front) {
 // =====================
 // STAY CLOSE: near RITA, in your hand (fleet_stay.h)
 // =====================
-const int STAY_WALL_CM = 30;
 const int STAY_SCALE = 55;
 
-void StayMode(float front) {
+// Her four ultrasonics and her mecanum wheels: she slows near things, slides round them toward the
+// side with more room (still facing RITA's signal), and backs out of a corner (fleet_stay.h)
+void StayMode(float front, float left, float right) {
   float rssi = -100;
   const bool heard = fleetNearHeard(STAY_PEER, STAY_LOST_MS, &rssi);
-  const bool blocked = front > 0 && front < STAY_WALL_CM;
-  switch (stayStep(stay, heard, rssi, blocked, millis())) {
-    case STAY_WALK:  moveForward(STAY_SCALE); break;
-    case STAY_LEFT:  turnLeft(STAY_SCALE);    break;
-    case STAY_RIGHT: turnRight(STAY_SCALE);   break;
-    default:         if (motorsMoving) stopMotors();
+  const StaySight sight = { front, left, right, true };
+  switch (stayStepSmart(stay, heard, rssi, sight, millis())) {
+    case STAY_WALK:        moveForward(STAY_SCALE);           break;
+    case STAY_CREEP:       moveForward(STAY_SCALE * 2 / 3);   break;   // something ahead: carefully
+    case STAY_LEFT:        turnLeft(STAY_SCALE);              break;
+    case STAY_RIGHT:       turnRight(STAY_SCALE);             break;
+    case STAY_SLIDE_LEFT:  strafeLeft(STAY_SCALE);            break;
+    case STAY_SLIDE_RIGHT: strafeRight(STAY_SCALE);           break;
+    case STAY_BACK:        moveBackward(STAY_SCALE * 2 / 3);  break;
+    default:               if (motorsMoving) stopMotors();
   }
 }
 
@@ -1087,223 +1087,6 @@ void showTick() {
   else if (beat == 1) turnRight(SHOW_SCALE);
   else if (beat == 2) strafeLeft(SHOW_SCALE);
   else strafeRight(SHOW_SCALE);
-}
-
-// =====================
-// BLUETOOTH COMMANDS
-// =====================
-void handleBluetooth() {
-  while (SerialBT.available()) {
-    char c = SerialBT.read();
-
-    // These two "awaiting" branches consume their own terminators (a fixed
-    // length for the password, '\n' for the fleet line), so they have to
-    // see raw bytes before the generic whitespace skip below strips them —
-    // that skip only applies once neither branch is mid-capture.
-    if (btAwaitingPw) {
-      btPwBuffer += c;
-      if (btPwBuffer.length() >= 4) {
-        if (btPwBuffer == MOTOR_PASSWORD) {
-          motorLocked = false;
-          notifyLock();
-          SerialBT.println("motorlock: off");
-        } else {
-          SerialBT.println("motorlock: denied");
-        }
-        btAwaitingPw = false;
-        btPwBuffer = "";
-      }
-      continue;
-    }
-
-    if (btAwaitingFleet) {
-      if (c == '\n') {
-        int sep = btFleetBuffer.indexOf(':');
-        String name = (sep == -1) ? btFleetBuffer : btFleetBuffer.substring(0, sep);
-        String caps = (sep == -1) ? "" : btFleetBuffer.substring(sep + 1);
-        name.trim();
-        if (name.length()) {
-          fleetRegister(name, "fleet_manager", caps, IPAddress((uint32_t)0));
-          SerialBT.println("OK");
-        } else {
-          SerialBT.println("ERR");
-        }
-        btAwaitingFleet = false;
-        btFleetBuffer = "";
-      } else if (c != '\r') {
-        btFleetBuffer += c;
-      }
-      continue;
-    }
-
-    if (c == '\n' || c == '\r' || c == ' ') continue;
-
-    if (btLinkAddress) {
-      // 'T' + robot (I IDA, M MILA, W WHIP, K KIDA, N NIKA) + the same letters as 'I'
-      String one(c);
-      one.toUpperCase();
-      if (btLinkAddress == 1) {
-        btLinkAddress = linkAddress(one);
-        if (!btLinkAddress) SerialBT.println("link: robot? (I M W K N)");
-      } else {
-        SerialBT.println(linkCommand(btLinkAddress, one) ? "link: ok" : "link: ?");
-        btLinkAddress = 0;
-      }
-      continue;
-    }
-
-    if (btAwaitingIda) {
-      // 'I' + F/B/L/R (drive, repeat while held), S stop, O obstacle, W manual, X speed
-      btAwaitingIda = false;
-      String one(c);
-      one.toUpperCase();
-      SerialBT.println(idaCommand(one) ? "ida: ok" : "ida: ?");
-      continue;
-    }
-
-    switch (c) {
-      // ---- IDA link prefix ----
-      case 'I':
-      case 'i': btAwaitingIda = true; break;
-      case 'T':
-      case 't': btLinkAddress = 1; break;
-
-      // ---- driving (manual mode only, same rule as the web pad) ----
-      case 'F':
-      case 'f':
-        if (driveMode == MODE_MANUAL) moveForward();
-        break;
-      case 'B':
-      case 'b':
-        if (driveMode == MODE_MANUAL) moveBackward();
-        break;
-      case 'L':
-      case 'l':
-        if (driveMode == MODE_MANUAL) strafeLeft();
-        break;
-      case 'R':
-      case 'r':
-        if (driveMode == MODE_MANUAL) strafeRight();
-        break;
-      case 'Q':
-      case 'q':
-        if (driveMode == MODE_MANUAL) turnLeft();
-        break;
-      case 'E':
-      case 'e':
-        if (driveMode == MODE_MANUAL) turnRight();
-        break;
-      case 'S':
-      case 's':
-        if (driveMode == MODE_MANUAL) stopMotors();
-        break;
-
-      // ---- modes ----
-      case '1':
-        setDriveMode(MODE_MANUAL, "bt");
-        SerialBT.println("mode: manual");
-        break;
-      case '2':
-        setDriveMode(MODE_AUTO, "bt");
-        SerialBT.println("mode: auto");
-        break;
-      case '3':
-        setDriveMode(MODE_LINE, "bt");
-        SerialBT.println("mode: line");
-        break;
-
-      // ---- UV ----
-      case 'U':
-      case 'u':
-        uvMode = (uvMode + 1) % 3;
-        notifyUv();
-        SerialBT.println(uvMode == 0 ? "uv: off" : uvMode == 1 ? "uv: on"
-                                                               : "uv: blink");
-        break;
-
-      // ---- motor lock: 'K' locks (free), 'V' arms unlock (next 4 chars = password) ----
-      case 'K':
-      case 'k':
-        motorLocked = true;
-        stopMotors();
-        notifyLock();
-        SerialBT.println("motorlock: on");
-        break;
-      case 'V':
-      case 'v':
-        btAwaitingPw = true;
-        btPwBuffer = "";
-        break;
-
-      // ---- fleet heartbeat/register: 'H' arms it, next line is "name:caps" ----
-      case 'H':
-      case 'h':
-        btAwaitingFleet = true;
-        btFleetBuffer = "";
-        break;
-
-      // ---- music (forwarded to the Arduino) ----
-      case 'M':
-      case 'm': Serial.println("M:PLAY"); break;
-      case 'N':
-      case 'n': Serial.println("M:NEXT"); break;
-      case 'P':
-      case 'p': Serial.println("M:PREV"); break;
-      case 'X':
-      case 'x': Serial.println("M:STOP"); break;
-
-      // ---- status query ----
-      case '?':
-        SerialBT.print("F:");
-        SerialBT.print(front_cm);
-        SerialBT.print(" L:");
-        SerialBT.print(left_cm);
-        SerialBT.print(" B:");
-        SerialBT.print(back_cm);
-        SerialBT.print(" R:");
-        SerialBT.print(right_cm);
-        SerialBT.print(" mode:");
-        SerialBT.print((int)driveMode);
-        SerialBT.print(" (");
-        SerialBT.print(modeSource);
-        SerialBT.print(")");
-        SerialBT.print(" dir:");
-        SerialBT.print(autoDir);
-        SerialBT.print(" lf:");
-        SerialBT.print(lf_l);
-        SerialBT.print(lf_m);
-        SerialBT.print(lf_r);
-        SerialBT.print(" track:");
-        SerialBT.print(musicTrack);
-        SerialBT.print(" state:");
-        SerialBT.print(musicState);
-        SerialBT.print(" light:");
-        SerialBT.print(lightPct);
-        SerialBT.print("% sound:");
-        SerialBT.print(soundRecent ? "yes" : "no");
-        SerialBT.print(" temp:");
-        SerialBT.print(tempC, 1);
-        SerialBT.print("C hum:");
-        SerialBT.print(humidity, 1);
-        SerialBT.print("% lock:");
-        SerialBT.println(motorLocked ? 1 : 0);
-        break;
-
-      // ---- speed nudge ----
-      case '+':
-        speedPct = constrain(speedPct + 10, 10, 100);
-        notifySpeed();
-        SerialBT.print("speed: ");
-        SerialBT.println(speedPct);
-        break;
-      case '-':
-        speedPct = constrain(speedPct - 10, 10, 100);
-        notifySpeed();
-        SerialBT.print("speed: ");
-        SerialBT.println(speedPct);
-        break;
-    }
-  }
 }
 
 // =====================
