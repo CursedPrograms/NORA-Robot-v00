@@ -51,7 +51,7 @@
 // and keeps looking: when a higher network shows up she restarts into it (parked only).
 const char* ap_ssid = NORA_AP_SSID;
 const char* ap_password = NORA_AP_PASSWORD;
-const char* const ABOVE_NORA[] = { FLEET_SSID, "DREAM", "NINA", "TINA", "NORACTL", "WHIPCTL", "KIDA01CTL", "KIDA00CTL", "ARMCTL" };   // highest first
+const char* const ABOVE_NORA[] = { FLEET_SSID, "DREAM", "NINA", "TINA", "AURA", "NORACTL", "WHIPCTL", "KIDA01CTL", "KIDA00CTL", "ARMCTL" };   // highest first
 const uint16_t RIFT_PORT = 5000;                             // the fleet list, on whoever hosts
 const unsigned long FLEET_JOIN_MS = 20000;     // at boot: how long to try RIFT's network
 const unsigned long RIFT_SCAN_MS = 30000;      // on her own network: look for RIFT this often
