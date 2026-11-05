@@ -32,6 +32,10 @@
   <p><i>NORA</i></p>
 </div>
 
+<div align="center">
+  <img src="images/NORA1.jpg" alt="NORA Robot" width="400"/>
+</div>
+
 ---
 
 ### Software
@@ -41,9 +45,7 @@
 
 ---
 
-<div align="center">
-  <img src="images/NORA1.jpg" alt="NORA Robot" width="400"/>
-</div>
+
 
 ---
 
@@ -59,8 +61,9 @@
 
 **Other languages:** `scripts/controllers` has this robot's controller in C#, F#, Rust, Go and Julia, all reading one `robot.json`: W A S D to drive, the mode buttons and the sensors. See its README for how to run each.
 
-## Related Projects
+---
 
+## Related Projects
 
 <table>
   <tr>
@@ -86,13 +89,15 @@
 
 ## Overview
 
+**Website: <https://cursedprograms.github.io/NORA-Robot-v00/>**
+
 <details>
 <summary><b>Overview</b></summary>
 
 NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest of the fleet joins, runs the fleet registry, and drives four mecanum wheels. An Arduino UNO with a SparkFun MP3 Player Shield reads her four ultrasonic sensors, light and sound sensors, plays music and drives the buzzer, and streams it all to the ESP32.
 
 ### Core Features
-- [x] **Android app (`Android App/`, package `com.synthwomb`): FIND gets her address from the fleet list, or type it in. Hold the stick to drive, let go to stop, and her modes, HELLO, DANCE and the wheel lock are buttons. Build it with `gradlew assembleDebug`.**
+- [x] **Android app (`Android App/`, package `com.synthwomb`): FIND gets her address from the fleet list, or type it in. Hold the stick to drive, let go to stop, and her modes, HELLO, DANCE and the wheel lock are buttons. Build it with `gradlew assembleDebug`. Install: [`NORA-debug-2026-10-30.apk`](Android%20App/apk/NORA-debug-2026-10-30.apk).**
 - [x] **FOLLOW:** she keeps your hand 30 cm from her front sonar, inside her wall stop. On her web page, or **F** on the controller.
 - [x] **HELLO and DANCE:** a wiggle and a spin on the spot, in Manual (`/act?do=hello`, `/act?do=dance`; **B** and **C** on the controller). Her wall stop still holds, and any stop ends them.
 - [x] **Live view:** her controller draws her from above, wheels turning and walls on all four sides.
@@ -115,7 +120,7 @@ NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest 
 
 ---
 
-## Prerequisites
+## Hardware
 
 <details>
 <summary><b>Prerequisites</b></summary>
@@ -153,9 +158,7 @@ NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest 
   <img src="images/NORA2.jpg" alt="NORA Robot" width="400"/>
 </div>
 
----
-
-## Pinouts
+### Pinout
 
 > [!CAUTION]
 > **Ground Loop Warning:** All modules must share a common GND. Failure to bridge grounds will cause erratic motor behavior and sensor noise.
@@ -163,19 +166,19 @@ NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest 
 <details>
 <summary><b>ESP32 wiring</b></summary>
 
-#### L298N-0 (front drive)
+##### L298N-0 (front drive)
 | Motor | PWM Pin | Dir 1 | Dir 2 |
 | :--- | :--- | :--- | :--- |
 | **M0** | `GPIO 5` | `GPIO 16` | `GPIO 17` |
 | **M1** | `GPIO 23`| `GPIO 18` | `GPIO 19` |
 
-#### L298N-1 (rear drive)
+##### L298N-1 (rear drive)
 | Motor | PWM Pin | Dir 1 | Dir 2 |
 | :--- | :--- | :--- | :--- |
 | **M2** | `GPIO 12` | `GPIO 13` | `GPIO 14` |
 | **M3** | `GPIO 27` | `GPIO 26` | `GPIO 25` |
 
-#### Sensors and outputs
+##### Sensors and outputs
 | Component | Pin |
 | :--- | :--- |
 | **Line follower L / M / R** | `GPIO 34` / `GPIO 35` / `GPIO 39` |
@@ -191,7 +194,7 @@ NORA is built on the **ESP32**. She hosts the `NORA` WiFi access point the rest 
 <details>
 <summary><b>UNO wiring</b></summary>
 
-#### Ultrasonic sensors
+##### Ultrasonic sensors
 All four TRIG pins are joined to one shared trigger.
 
 | Signal | Pin |
@@ -202,7 +205,7 @@ All four TRIG pins are joined to one shared trigger.
 | **Back ECHO** | `A2` |
 | **Left ECHO** | `A3` |
 
-#### Other
+##### Other
 | Component | Pin |
 | :--- | :--- |
 | **Photoresistor (LDR)** | `A5` |
@@ -442,6 +445,20 @@ Phrases (link commands): `0x40` hello, `0x41` how are you, `0x42` happy, `0x43` 
 
 ---
 
+## Bluetooth
+
+The fleet has **one Bluetooth protocol** (`fleet_bt`, master copy in [RIFT](https://github.com/CursedPrograms/RIFT)'s `Fleet/`): a controller sends exactly the web request it would send over WiFi, one per line (`>GET /status`, `>POST /command<TAB>{...}`), and the robot asks his or her own web server and answers `<code> <length>` and the body. So every command works the same both ways, including new ones, and so does every rule: the PIN, the locks, the robot's own stops.
+
+- **NORA** shows up as **NORA** (`scripts/esp32/fleet_bt.h`). Her old one-letter commands are gone: every web command works over Bluetooth now, including blended driving, the speed slider and the fleet panel. `>GET :5000/robots` reaches her fleet list (RIFT registers there over Bluetooth).
+- **Her controller**: the connection screen's Bluetooth, or `python scripts/controller.py --bt COM7` (or her address): `BtLink` is her WiFi link over Bluetooth.
+- Her `/status` has `distance_cm` (her front), `wifi_rssi` and `bluetooth`.
+
+**STAY CLOSE goes round things**: with her four sonars and mecanum wheels she slows near things, slides round them toward the side with more room (still facing RITA's signal), and backs out of a corner (`fleet_stay.h`).
+
+<!-- DREAM-ECOSYSTEM:START -->
+
+---
+
 ## Who's nearby (ESP-NOW + Bluetooth LE)
 
 Every robot sends a small **"I'm here"** beacon twice a second and listens for the others'. From the **signal strength** it knows roughly how close each one is, and from how that changes over time whether it's **coming closer, steady or leaving**:
@@ -484,14 +501,6 @@ NORA hears the others over **ESP-NOW** (WHIP, MILA) and **Bluetooth LE** (WHIP a
 
 ---
 
-<div align="center">&copy; Cursed Entertainment 2026</div>
-
-<div align="center">
-  <a href="https://cursed-entertainment.itch.io/">
-    <img src="https://github.com/CursedPrograms/cursedentertainment/raw/main/images/logos/logo-wide-grey.png" alt="Cursed Entertainment" width="250"/>
-  </a>
-</div>
-
 <div align="center">
   <a href="https://github.com/SynthWomb">
     <img src="https://github.com/SynthWomb/synth.womb/blob/main/logos/synthwomb07.png?raw=true" alt="SynthWomb" width="200"/>
@@ -500,17 +509,16 @@ NORA hears the others over **ESP-NOW** (WHIP, MILA) and **Bluetooth LE** (WHIP a
 
 ---
 
-## Bluetooth
+<div align="center">&copy; Cursed Entertainment 2026</div>
 
-The fleet has **one Bluetooth protocol** (`fleet_bt`, master copy in [RIFT](https://github.com/CursedPrograms/RIFT)'s `Fleet/`): a controller sends exactly the web request it would send over WiFi, one per line (`>GET /status`, `>POST /command<TAB>{...}`), and the robot asks its own web server and answers `<code> <length>` and the body. So every command works the same both ways, including new ones, and so does every rule: the PIN, the locks, the robot's own stops.
+<div align="center">
+  <a href="https://cursed-entertainment.itch.io/">
+    <img src="https://github.com/CursedPrograms/cursedentertainment/raw/main/images/logos/logo-wide-grey.png" alt="Cursed Entertainment" width="250"/>
+  </a>
+</div>
 
-- **NORA** shows up as **NORA** (`scripts/esp32/fleet_bt.h`). Her old one-letter commands are gone: every web command works over Bluetooth now, including blended driving, the speed slider and the fleet panel. `>GET :5000/robots` reaches her fleet list (RIFT registers there over Bluetooth).
-- **Her controller**: the connection screen's Bluetooth, or `python scripts/controller.py --bt COM7` (or her address): `BtLink` is her WiFi link over Bluetooth.
-- Her `/status` has `distance_cm` (her front), `wifi_rssi` and `bluetooth`.
+---
 
-**STAY CLOSE goes round things**: with her four sonars and mecanum wheels she slows near things, slides round them toward the side with more room (still facing RITA's signal), and backs out of a corner (`fleet_stay.h`).
-
-<!-- DREAM-ECOSYSTEM:START -->
 ## The DREAM Robotics ecosystem
 
 **Minds** — [DREAM](https://github.com/CursedPrograms/DREAM) companion · [TINA](https://github.com/CursedPrograms/TINA) engineer · [NINA](https://github.com/CursedPrograms/NINA) caretaker · [RIFT](https://github.com/CursedPrograms/RIFT) fleet hub · [LYCEA](https://github.com/CursedPrograms/LYCEA) training school  
