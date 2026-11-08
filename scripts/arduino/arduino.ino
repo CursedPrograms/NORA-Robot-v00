@@ -360,6 +360,10 @@ void handleCommand(String cmd) {
     startTalk(cmd.substring(8).toInt());
     return;
   }
+  if (cmd.startsWith("BZ:MUTE:")) {   // her Brainfuck talking muted (the ESP32's /talkmute)
+    talkMuted = cmd.substring(8).toInt() == 1;
+    return;
+  }
   if (cmd == "BZ:DENIED") {
     // a held drive key repeats this several times a second -- say it once, beep the rest
     if (millis() - lastBlockedSayMs > 3000 && sayVoice(VOICE_BLOCKED)) lastBlockedSayMs = millis();
